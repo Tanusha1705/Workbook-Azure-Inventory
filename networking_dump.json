@@ -1,0 +1,54 @@
+{
+  "type": 11,
+  "content": {
+    "version": "LinkItem/1.0",
+    "style": "tabs",
+    "links": [
+      {
+        "id": "d99f06e7-b625-4b75-b01c-c6cae7661d2f",
+        "cellValue": "hardware",
+        "linkTarget": "parameter",
+        "linkLabel": "VM Scale Sets",
+        "subTarget": "vmss",
+        "style": "link"
+      },
+      {
+        "id": "2c1dc7ff-d1c2-4214-9289-6ec960f405b8",
+        "cellValue": "hardware",
+        "linkTarget": "parameter",
+        "linkLabel": "VM Overview",
+        "subTarget": "overview",
+        "style": "link"
+      },
+      {
+        "id": "9ba284c0-ba39-460c-9f74-b9ae8845245c",
+        "cellValue": "hardware",
+        "linkTarget": "parameter",
+        "linkLabel": "VM Storage",
+        "subTarget": "storage",
+        "style": "link"
+      },
+      {
+        "id": "ac392a07-01a6-4727-b82b-117c529867c7",
+        "cellValue": "hardware",
+        "linkTarget": "parameter",
+        "linkLabel": "VM Networking",
+        "subTarget": "network",
+        "style": "link"
+      }
+    ]
+  },
+  "conditionalVisibilities": [
+    {
+      "parameterName": "selectedTab",
+      "comparison": "isEqualTo",
+      "value": "compute"
+    },
+    {
+      "parameterName": "compute",
+      "comparison": "isEqualTo",
+      "value": "azure"
+    }
+  ],
+  "name": "links - Azure Compute Storage Networking Breakdown"
+}

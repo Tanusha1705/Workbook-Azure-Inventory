@@ -1,0 +1,30 @@
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - armTemplate/*
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  serviceConnection: 'sc-integraion-dev'
+  resourceGroupName: 'mha-tech-identities-rg'
+  subscriptionId: '0654ba26-cc3e-4a0f-bd96-2b6830079852'
+
+steps:
+- task: AzureResourceManagerTemplateDeployment@3
+  displayName: 'Deploy Azure Inventory Workbook'
+  inputs:
+    deploymentScope: 'Resource Group'
+    azureResourceManagerConnection: $(serviceConnection)
+    subscriptionId: $(subscriptionId)
+    action: 'Create Or Update Resource Group'
+    resourceGroupName: $(resourceGroupName)
+    location: 'West Europe' # Change this if your resource group is in a different location
+    templateLocation: 'Linked artifact'
+    csmFile: 'armTemplate/template.json'
+    overrideParameters: '-workbookDisplayName "azure inventory"'
+    deploymentMode: 'Incremental'
