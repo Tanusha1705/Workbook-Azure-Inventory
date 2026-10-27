@@ -219,17 +219,60 @@ foreach ($gw in $appGateways) {
         $base64Cert = $certProps.publicCertData
         $keyVaultSecretId = $certProps.keyVaultSecretId
 
-        # Case A: Directly Uploaded Certificate (Base64 X.509)
+        # Case A: Directly Uploaded Certificate (Base64 PKCS#7 / P7B / X.509)
         if (-not [string]::IsNullOrEmpty($base64Cert)) {
             try {
-                $cleanBase64 = $base64Cert.Trim() -replace '-----BEGIN CERTIFICATE-----', '' -replace '-----END CERTIFICATE-----', '' -replace '[\r\n\s]+', ''
+                # Strip all possible PEM / PKCS#7 headers, footers, and whitespace
+                $cleanBase64 = $base64Cert.Trim() `
+                    -replace '-----BEGIN CERTIFICATE-----', '' -replace '-----END CERTIFICATE-----', '' `
+                    -replace '-----BEGIN PKCS7-----', '' -replace '-----END PKCS7-----', '' `
+                    -replace '-----BEGIN CERTIFICATE CHAIN-----', '' -replace '-----END CERTIFICATE CHAIN-----', '' `
+                    -replace '[\r\n\s]+', ''
                 $rawBytes = [System.Convert]::FromBase64String($cleanBase64)
                 
+                $x509 = $null
+
+                # Technique 1: X509Certificate2Collection (Decodes PKCS#7 / P7B bundles created by Azure Application Gateway)
                 try {
-                    $x509 = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(,$rawBytes)
-                } catch {
-                    $x509 = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2
-                    $x509.Import($rawBytes)
+                    $coll = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection
+                    $coll.Import($rawBytes)
+                    if ($coll.Count -gt 0) {
+                        # Find the leaf certificate (shortest NotAfter or non-CA)
+                        $leaf = $coll | Where-Object {
+                            $isCa = $false
+                            foreach ($ext in $_.Extensions) {
+                                if ($ext.Oid.Value -eq "2.5.29.19" -and $ext.CertificateAuthority) { $isCa = $true }
+                            }
+                            -not $isCa
+                        } | Select-Object -First 1
+                        $x509 = if ($leaf) { $leaf } else { ($coll | Sort-Object NotAfter)[0] }
+                    }
+                } catch {}
+
+                # Technique 2: SignedCms (Cryptographic Message Syntax SignedData)
+                if (-not $x509) {
+                    try {
+                        Add-Type -AssemblyName System.Security -ErrorAction SilentlyContinue
+                        $signedCms = New-Object System.Security.Cryptography.Pkcs.SignedCms
+                        $signedCms.Decode($rawBytes)
+                        if ($signedCms.Certificates.Count -gt 0) {
+                            $x509 = ($signedCms.Certificates | Sort-Object NotAfter)[0]
+                        }
+                    } catch {}
+                }
+
+                # Technique 3: Single X509Certificate2 fallback (DER / PEM)
+                if (-not $x509) {
+                    try {
+                        $x509 = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(,$rawBytes)
+                    } catch {
+                        $x509 = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2
+                        $x509.Import($rawBytes)
+                    }
+                }
+
+                if (-not $x509) {
+                    throw "Unable to parse certificate bytes into X.509 or PKCS#7 format"
                 }
                 
                 $daysRemaining = [math]::Round(($x509.NotAfter - (Get-Date)).TotalDays)
