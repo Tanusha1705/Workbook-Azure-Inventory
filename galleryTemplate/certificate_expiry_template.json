@@ -756,9 +756,9 @@
                         "type": 3,
                         "content": {
                             "version": "KqlItem/1.0",
-                            "query": "resources\n| where type =~ 'microsoft.network/applicationgateways'\n| mv-expand cert = properties.sslCertificates\n| extend certName = tostring(cert.name)\n| extend keyVaultSecretId = tostring(cert.properties.keyVaultSecretId)\n| extend certProvisioningState = tostring(cert.properties.provisioningState)\n| extend CertificateType = iff(isnotempty(keyVaultSecretId), 'Key Vault Managed', 'Direct Upload (Manual)')\n| extend AutoRotation = iff(isempty(keyVaultSecretId), 'None (Direct Upload)', iff(keyVaultSecretId matches regex @'/[0-9a-f]{32}$', 'Pinned Version (Manual Update)', 'Auto-Rotate (Unversioned URI)'))\n| extend TaggedExpiry = tostring(tags[strcat('CertExpiry_', certName)])\n| extend TaggedDays = toint(tags[strcat('CertDays_', certName)])\n| extend TaggedStatus = tostring(tags[strcat('CertStatus_', certName)])\n| extend ParsedDateTime = todatetime(TaggedExpiry)\n| extend ExactExpirationDateTime = ParsedDateTime\n| extend ExactExpiration = case(\n    isnotempty(ParsedDateTime), tostring(ParsedDateTime),\n    isnotempty(TaggedExpiry), TaggedExpiry,\n    isnotempty(keyVaultSecretId), 'Managed in Key Vault (Run script to resolve)',\n    '⚠️ Direct Upload (Run script to populate)'\n)\n| extend DaysRemaining = iff(isnotempty(TaggedDays), TaggedDays, iff(isnotempty(keyVaultSecretId), int(999), int(null)))\n| extend ExpiryStatus = iff(isnotempty(TaggedStatus), TaggedStatus, iff(isnotempty(keyVaultSecretId), 'Key Vault Managed', 'Direct Upload (Run sync script)'))\n| project ApplicationGateway = id, CertificateName = certName, ExactExpiration, ExactExpirationDateTime, DaysRemaining, ExpiryStatus, CertificateType, AutoRotation, KeyVaultSecretURI = keyVaultSecretId, ProvisioningState = certProvisioningState, location, resourceGroup, subscriptionId\n| sort by CertificateType asc, CertificateName asc",
+                            "query": "resources\n| where type =~ 'microsoft.network/applicationgateways'\n| mv-expand cert = properties.sslCertificates\n| extend certName = tostring(cert.name)\n| extend keyVaultSecretId = tostring(cert.properties.keyVaultSecretId)\n| extend certProvisioningState = tostring(cert.properties.provisioningState)\n| extend CertificateType = iff(isnotempty(keyVaultSecretId), 'Key Vault Managed', 'Direct Upload (Manual)')\n| extend AutoRotation = iff(isempty(keyVaultSecretId), 'None (Direct Upload)', iff(keyVaultSecretId matches regex @'/[0-9a-f]{32}$', 'Pinned Version (Manual Update)', 'Auto-Rotate (Unversioned URI)'))\n| extend TaggedExpiry = tostring(tags[strcat('CertExpiry_', certName)])\n| extend TaggedDays = toint(tags[strcat('CertDays_', certName)])\n| extend TaggedStatus = tostring(tags[strcat('CertStatus_', certName)])\n| extend ParsedDateTime = todatetime(TaggedExpiry)\n| extend ExactExpiration = case(\n    isnotempty(ParsedDateTime), tostring(ParsedDateTime),\n    isnotempty(TaggedExpiry), TaggedExpiry,\n    isnotempty(keyVaultSecretId), 'Key Vault Managed (Run sync script to resolve)',\n    '⚠️ Direct Upload (Run sync script to populate)'\n)\n| extend DaysRemaining = iff(isnotempty(TaggedDays), strcat(tostring(TaggedDays), ' Days'), '--')\n| extend ExpiryStatus = iff(isnotempty(TaggedStatus), TaggedStatus, iff(isnotempty(keyVaultSecretId), 'Key Vault Managed', 'Direct Upload (Pending Sync)'))\n| project ApplicationGateway = id, CertificateName = certName, ExactExpiration, DaysRemaining, ExpiryStatus, CertificateType, AutoRotation, KeyVaultSecretURI = keyVaultSecretId, ProvisioningState = certProvisioningState, location, resourceGroup, subscriptionId\n| sort by CertificateType asc, CertificateName asc",
                             "size": 2,
-                            "title": "Application Gateway SSL Certificates - Exact Expiration Date & Time (Live ARG)",
+                            "title": "Application Gateway SSL Certificates & Expiration Posture (Live ARG)",
                             "noDataMessage": "No Application Gateways found in selected subscriptions.",
                             "showExportToExcel": true,
                             "queryType": 1,
@@ -799,6 +799,12 @@
                                                     "text": "{0}{1}"
                                                 },
                                                 {
+                                                    "operator": "startsWith",
+                                                    "thresholdValue": "Key Vault",
+                                                    "representation": "info",
+                                                    "text": "{0}{1}"
+                                                },
+                                                {
                                                     "operator": "Default",
                                                     "thresholdValue": null,
                                                     "representation": "success",
@@ -808,10 +814,52 @@
                                         }
                                     },
                                     {
-                                        "columnMatch": "ExactExpirationDateTime",
-                                        "formatter": 6,
+                                        "columnMatch": "DaysRemaining",
+                                        "formatter": 1
+                                    },
+                                    {
+                                        "columnMatch": "ExpiryStatus",
+                                        "formatter": 18,
                                         "formatOptions": {
-                                            "customColumnWidthSetting": "22ch"
+                                            "thresholdsOptions": "icons",
+                                            "thresholdsGrid": [
+                                                {
+                                                    "operator": "==",
+                                                    "thresholdValue": "Expired",
+                                                    "representation": "3",
+                                                    "text": "{0}{1}"
+                                                },
+                                                {
+                                                    "operator": "startsWith",
+                                                    "thresholdValue": "Critical",
+                                                    "representation": "2",
+                                                    "text": "{0}{1}"
+                                                },
+                                                {
+                                                    "operator": "startsWith",
+                                                    "thresholdValue": "Warning",
+                                                    "representation": "warning",
+                                                    "text": "{0}{1}"
+                                                },
+                                                {
+                                                    "operator": "startsWith",
+                                                    "thresholdValue": "Attention",
+                                                    "representation": "4",
+                                                    "text": "{0}{1}"
+                                                },
+                                                {
+                                                    "operator": "startsWith",
+                                                    "thresholdValue": "Healthy",
+                                                    "representation": "success",
+                                                    "text": "{0}{1}"
+                                                },
+                                                {
+                                                    "operator": "Default",
+                                                    "thresholdValue": null,
+                                                    "representation": "2",
+                                                    "text": "{0}{1}"
+                                                }
+                                            ]
                                         }
                                     },
                                     {
@@ -831,39 +879,6 @@
                                                     "thresholdValue": null,
                                                     "representation": "2",
                                                     "text": "{0}{1}"
-                                                }
-                                            ]
-                                        }
-                                    },
-                                    {
-                                        "columnMatch": "DaysRemaining",
-                                        "formatter": 18,
-                                        "formatOptions": {
-                                            "thresholdsOptions": "icons",
-                                            "thresholdsGrid": [
-                                                {
-                                                    "operator": "<=",
-                                                    "thresholdValue": "0",
-                                                    "representation": "3",
-                                                    "text": "{0} Days (Expired)"
-                                                },
-                                                {
-                                                    "operator": "<=",
-                                                    "thresholdValue": "30",
-                                                    "representation": "2",
-                                                    "text": "{0} Days (Critical)"
-                                                },
-                                                {
-                                                    "operator": "<=",
-                                                    "thresholdValue": "90",
-                                                    "representation": "4",
-                                                    "text": "{0} Days"
-                                                },
-                                                {
-                                                    "operator": "Default",
-                                                    "thresholdValue": null,
-                                                    "representation": "success",
-                                                    "text": "{0} Days"
                                                 }
                                             ]
                                         }
