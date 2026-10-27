@@ -1,1115 +1,1127 @@
 {
-  "version": "Notebook/1.0",
-  "items": [
-    {
-      "type": 1,
-      "content": {
-        "json": "## Azure Tenant Certificate & Expiry Management Workbook\r\n### Centralized inventory of SSL/TLS certificates, certificate orders, web app bindings, and edge security across your entire Azure Tenant.\r\n---"
-      },
-      "name": "text - Workbook Header"
-    },
-    {
-      "type": 9,
-      "content": {
-        "version": "KqlParameterItem/1.0",
-        "parameters": [
-          {
-            "id": "param-subscriptions",
-            "version": "KqlParameterItem/1.0",
-            "name": "Subscriptions",
-            "type": 6,
-            "isRequired": true,
-            "multiSelect": true,
-            "quote": "'",
-            "delimiter": ",",
-            "value": [
-              "value::all"
-            ],
-            "typeSettings": {
-              "additionalResourceOptions": [
-                "value::1",
-                "value::all"
-              ],
-              "includeAll": true,
-              "showDefault": false
-            }
-          },
-          {
-            "id": "param-workspace",
-            "version": "KqlParameterItem/1.0",
-            "name": "Workspace",
-            "label": "Log Analytics Workspace (Optional)",
-            "type": 5,
-            "isRequired": false,
-            "typeSettings": {
-              "resourceTypeFilter": {
-                "microsoft.operationalinsights/workspaces": true
-              },
-              "additionalResourceOptions": []
-            }
-          },
-          {
-            "id": "param-expiry-filter",
-            "version": "KqlParameterItem/1.0",
-            "name": "ExpiryThreshold",
-            "label": "Expiry Filter",
-            "type": 2,
-            "isRequired": true,
-            "typeSettings": {
-              "additionalResourceOptions": []
-            },
-            "jsonData": "[\r\n {\"value\":\"all\", \"label\":\"All Certificates\", \"selected\":true},\r\n {\"value\":\"Expired\", \"label\":\"Expired (< 0 Days)\"},\r\n {\"value\":\"Critical\", \"label\":\"Critical (< 30 Days)\"},\r\n {\"value\":\"Warning\", \"label\":\"Warning (31 - 60 Days)\"},\r\n {\"value\":\"Attention\", \"label\":\"Attention (61 - 90 Days)\"},\r\n {\"value\":\"Healthy\", \"label\":\"Healthy (> 90 Days)\"}\r\n]"
-          },
-          {
-            "id": "param-help",
-            "version": "KqlParameterItem/1.0",
-            "name": "Help",
-            "label": "Show Help",
-            "type": 10,
-            "isRequired": true,
-            "typeSettings": {
-              "additionalResourceOptions": []
-            },
-            "jsonData": "[\r\n {\"value\":\"Yes\", \"label\":\"Yes\"},\r\n {\"value\":\"No\", \"label\":\"No\", \"selected\":true},\r\n {\"value\":\"Change Log\", \"label\":\"Change Log\"}\r\n]"
-          }
-        ],
-        "style": "pills",
-        "queryType": 1,
-        "resourceType": "microsoft.resourcegraph/resources"
-      },
-      "name": "parameters - Global Filters"
-    },
-    {
-      "type": 1,
-      "content": {
-        "json": "### Help & Overview - Azure Tenant Certificate Monitoring\r\n\r\nThis workbook queries Azure Resource Graph (ARG) in real time across all selected subscriptions in your tenant.\r\n\r\n#### Covered Certificate Asset Types:\r\n1. **App Service Certificates (`microsoft.web/certificates`)**: Custom SSL certificates uploaded or managed for App Services.\r\n2. **App Service Certificate Orders (`microsoft.web/certificateorders`)**: Managed domain certificate orders through Azure, with auto-renew tracking.\r\n3. **Web Apps & Custom Domain SSL Bindings (`microsoft.web/sites`)**: Maps App Service & Function App custom hostnames to their bound certificates, thumbprints, and live expiration dates.\r\n4. **Application Gateways (`microsoft.network/applicationgateways`)**: SSL termination certificates, identifying whether they use **Azure Key Vault with auto-rotation** or **manually uploaded blobs**.\r\n5. **API Management (`microsoft.apimanagement/service`)**: Custom domain endpoint certificates (Gateway, Portal, Management) and Key Vault integrations.\r\n6. **Azure Front Door & CDN (`microsoft.cdn/profiles/customdomains`)**: Edge TLS configurations and custom domain validation status.\r\n7. **Azure Key Vaults (`microsoft.keyvault/vaults`)**: Posture review (Soft Delete, Purge Protection) and Diagnostic Logging recommendations.\r\n\r\n> [!NOTE]\r\n> Azure Resource Graph requires Reader role on target subscriptions to read resource metadata.",
-        "style": "info"
-      },
-      "conditionalVisibility": {
-        "parameterName": "Help",
-        "comparison": "isEqualTo",
-        "value": "Yes"
-      },
-      "name": "text - Help Documentation"
-    },
-    {
-      "type": 1,
-      "content": {
-        "json": "### Change Log\r\n\r\n| Version | Date | Description |\r\n|---|---|---|\r\n| **v1.0.0** | Initial Release | Initial release of full tenant Azure Certificate Expiry Workbook: App Services, Certificate Orders, Web App SSL bindings, Application Gateways, APIM, Front Door, and Key Vault integration. |",
-        "style": "upsell"
-      },
-      "conditionalVisibility": {
-        "parameterName": "Help",
-        "comparison": "isEqualTo",
-        "value": "Change Log"
-      },
-      "name": "text - Change Log"
-    },
-    {
-      "type": 3,
-      "content": {
-        "version": "KqlItem/1.0",
-        "query": "resources\r\n| where type =~ 'microsoft.web/certificates'\r\n| extend ExpirationDate = todatetime(properties.expirationDate)\r\n| extend DaysRemaining = datetime_diff('day', ExpirationDate, now())\r\n| summarize\r\n    TotalCertificates = count(),\r\n    Expired = countif(DaysRemaining < 0),\r\n    Critical30Days = countif(DaysRemaining >= 0 and DaysRemaining <= 30),\r\n    Warning60Days = countif(DaysRemaining > 30 and DaysRemaining <= 60),\r\n    Attention90Days = countif(DaysRemaining > 60 and DaysRemaining <= 90),\r\n    Healthy = countif(DaysRemaining > 90)\r\n| extend Dummy = 1\r\n| project-away Dummy",
-        "size": 4,
-        "title": "Certificate Health Overview (Tenant-Wide)",
-        "queryType": 1,
-        "resourceType": "microsoft.resourcegraph/resources",
-        "crossComponentResources": [
-          "{Subscriptions}"
-        ],
-        "visualization": "tiles",
-        "tileSettings": {
-          "showBorder": true,
-          "titleContent": {
-            "columnMatch": "TotalCertificates",
-            "formatter": 1
-          },
-          "leftContent": {
-            "columnMatch": "TotalCertificates",
-            "formatter": 12,
-            "formatOptions": {
-              "palette": "auto"
-            }
-          }
-        }
-      },
-      "name": "query - Top KPI Metrics"
-    },
-    {
-      "type": 11,
-      "content": {
-        "version": "LinkItem/1.0",
-        "style": "tabs",
-        "links": [
-          {
-            "id": "tab-overview",
-            "cellValue": "selectedTab",
-            "linkTarget": "parameter",
-            "linkLabel": "Executive Overview",
-            "subTarget": "overview",
-            "style": "link"
-          },
-          {
-            "id": "tab-appservice",
-            "cellValue": "selectedTab",
-            "linkTarget": "parameter",
-            "linkLabel": "App Service Certificates",
-            "subTarget": "appservice",
-            "style": "link"
-          },
-          {
-            "id": "tab-certorders",
-            "cellValue": "selectedTab",
-            "linkTarget": "parameter",
-            "linkLabel": "Certificate Orders",
-            "subTarget": "certorders",
-            "style": "link"
-          },
-          {
-            "id": "tab-sslbindings",
-            "cellValue": "selectedTab",
-            "linkTarget": "parameter",
-            "linkLabel": "Web Apps & SSL Bindings",
-            "subTarget": "sslbindings",
-            "style": "link"
-          },
-          {
-            "id": "tab-appgateway",
-            "cellValue": "selectedTab",
-            "linkTarget": "parameter",
-            "linkLabel": "Application Gateways",
-            "subTarget": "appgateway",
-            "style": "link"
-          },
-          {
-            "id": "tab-apim",
-            "cellValue": "selectedTab",
-            "linkTarget": "parameter",
-            "linkLabel": "API Management",
-            "subTarget": "apim",
-            "style": "link"
-          },
-          {
-            "id": "tab-frontdoor",
-            "cellValue": "selectedTab",
-            "linkTarget": "parameter",
-            "linkLabel": "Front Door & CDN",
-            "subTarget": "frontdoor",
-            "style": "link"
-          },
-          {
-            "id": "tab-keyvault",
-            "cellValue": "selectedTab",
-            "linkTarget": "parameter",
-            "linkLabel": "Key Vaults & Monitoring",
-            "subTarget": "keyvault",
-            "style": "link"
-          }
-        ]
-      },
-      "name": "links - Navigation Tabs",
-      "styleSettings": {
-        "padding": "0 0 15px 0"
-      }
-    },
-    {
-      "type": 12,
-      "content": {
-        "version": "NotebookGroup/1.0",
-        "groupType": "editable",
-        "items": [
-          {
-            "type": 1,
-            "content": {
-              "json": "### Executive Expiry Breakdown & Timeline\r\nVisual distribution of certificate lifecycles across status tiers, subscriptions, and geographic regions."
-            },
-            "name": "text - Overview Intro"
-          },
-          {
-            "type": 3,
-            "content": {
-              "version": "KqlItem/1.0",
-              "query": "resources\r\n| where type =~ 'microsoft.web/certificates'\r\n| extend ExpirationDate = todatetime(properties.expirationDate)\r\n| extend DaysRemaining = datetime_diff('day', ExpirationDate, now())\r\n| extend StatusTier = case(\r\n    isnull(ExpirationDate), 'Unknown',\r\n    DaysRemaining < 0, '1. Expired',\r\n    DaysRemaining <= 30, '2. Critical (< 30 Days)',\r\n    DaysRemaining <= 60, '3. Warning (31 - 60 Days)',\r\n    DaysRemaining <= 90, '4. Attention (61 - 90 Days)',\r\n    '5. Healthy (> 90 Days)'\r\n)\r\n| summarize Count = count() by StatusTier\r\n| sort by StatusTier asc",
-              "size": 0,
-              "title": "Certificates by Expiry Status Tier",
-              "queryType": 1,
-              "resourceType": "microsoft.resourcegraph/resources",
-              "crossComponentResources": [
-                "{Subscriptions}"
-              ],
-              "visualization": "piechart"
-            },
-            "name": "query - Status Tier Pie Chart",
-            "customWidth": "50"
-          },
-          {
-            "type": 3,
-            "content": {
-              "version": "KqlItem/1.0",
-              "query": "resources\r\n| where type =~ 'microsoft.web/certificates'\r\n| extend ExpirationDate = todatetime(properties.expirationDate)\r\n| extend DaysRemaining = datetime_diff('day', ExpirationDate, now())\r\n| extend Category = iff(DaysRemaining < 0, 'Expired', iff(DaysRemaining <= 90, 'Expiring Soon', 'Healthy'))\r\n| summarize Count = count() by subscriptionId, Category",
-              "size": 0,
-              "title": "Expiry Distribution by Subscription",
-              "queryType": 1,
-              "resourceType": "microsoft.resourcegraph/resources",
-              "crossComponentResources": [
-                "{Subscriptions}"
-              ],
-              "visualization": "barchart"
-            },
-            "name": "query - Subscription Bar Chart",
-            "customWidth": "50"
-          },
-          {
-            "type": 3,
-            "content": {
-              "version": "KqlItem/1.0",
-              "query": "resources\r\n| where type =~ 'microsoft.web/certificates'\r\n| summarize Count = count() by location\r\n| sort by Count desc",
-              "size": 0,
-              "title": "Geographic Distribution of Certificates",
-              "queryType": 1,
-              "resourceType": "microsoft.resourcegraph/resources",
-              "crossComponentResources": [
-                "{Subscriptions}"
-              ],
-              "visualization": "map",
-              "mapSettings": {
-                "locInfo": "AzureLoc",
-                "locInfoColumn": "location",
-                "sizeSettings": "Count",
-                "sizeAggregation": "Sum",
-                "labelSettings": "location",
-                "legendMetric": "Count",
-                "legendAggregation": "Sum",
-                "itemColorSettings": {
-                  "nodeColorField": "Count",
-                  "colorAggregation": "Sum",
-                  "type": "heatmap",
-                  "heatmapPalette": "blue"
-                }
-              }
-            },
-            "name": "query - Map of Certificates"
-          },
-          {
-            "type": 3,
-            "content": {
-              "version": "KqlItem/1.0",
-              "query": "resources\r\n| where type =~ 'microsoft.web/certificates'\r\n| extend ExpirationDate = todatetime(properties.expirationDate)\r\n| extend DaysRemaining = datetime_diff('day', ExpirationDate, now())\r\n| where DaysRemaining <= 90\r\n| extend Urgency = case(\r\n    DaysRemaining < 0, 'Expired',\r\n    DaysRemaining <= 30, 'Critical (< 30 Days)',\r\n    DaysRemaining <= 60, 'Warning (31 - 60 Days)',\r\n    'Attention (61 - 90 Days)'\r\n)\r\n| extend Subject = tostring(properties.subjectName)\r\n| extend Issuer = tostring(properties.issuer)\r\n| extend Thumbprint = tostring(properties.thumbprint)\r\n| extend KeyVaultId = tostring(properties.keyVaultId)\r\n| project Certificate = id, Subject, Issuer, ExpirationDate, DaysRemaining, Urgency, Thumbprint, KeyVaultId, resourceGroup, subscriptionId\r\n| sort by DaysRemaining asc",
-              "size": 2,
-              "title": "Urgent Action Required: Expired or Expiring within 90 Days",
-              "noDataMessage": "All certificates are valid and healthy (> 90 days remaining).",
-              "showExportToExcel": true,
-              "queryType": 1,
-              "resourceType": "microsoft.resourcegraph/resources",
-              "crossComponentResources": [
-                "{Subscriptions}"
-              ],
-              "visualization": "table",
-              "gridSettings": {
-                "filter": true,
-                "sortBy": [
+    "version":  "Notebook/1.0",
+    "items":  [
                   {
-                    "itemKey": "DaysRemaining",
-                    "sortOrder": 1
+                      "type":  1,
+                      "content":  {
+                                      "json":  "## Azure Tenant Certificate \u0026 Expiry Management Workbook\r\n### Centralized inventory of SSL/TLS certificates, certificate orders, web app bindings, and edge security across your entire Azure Tenant.\r\n---"
+                                  },
+                      "name":  "text - Workbook Header"
+                  },
+                  {
+                      "type":  9,
+                      "content":  {
+                                      "version":  "KqlParameterItem/1.0",
+                                      "parameters":  [
+                                                         {
+                                                             "id":  "param-subscriptions",
+                                                             "version":  "KqlParameterItem/1.0",
+                                                             "name":  "Subscriptions",
+                                                             "type":  6,
+                                                             "isRequired":  true,
+                                                             "multiSelect":  true,
+                                                             "quote":  "\u0027",
+                                                             "delimiter":  ",",
+                                                             "value":  [
+                                                                           "value::all"
+                                                                       ],
+                                                             "typeSettings":  {
+                                                                                  "additionalResourceOptions":  [
+                                                                                                                    "value::1",
+                                                                                                                    "value::all"
+                                                                                                                ],
+                                                                                  "includeAll":  true,
+                                                                                  "showDefault":  false
+                                                                              }
+                                                         },
+                                                         {
+                                                             "id":  "param-workspace",
+                                                             "version":  "KqlParameterItem/1.0",
+                                                             "name":  "Workspace",
+                                                             "label":  "Log Analytics Workspace (Optional)",
+                                                             "type":  5,
+                                                             "isRequired":  false,
+                                                             "typeSettings":  {
+                                                                                  "resourceTypeFilter":  {
+                                                                                                             "microsoft.operationalinsights/workspaces":  true
+                                                                                                         },
+                                                                                  "additionalResourceOptions":  [
+                                                                                                                    "value::1"
+                                                                                                                ]
+                                                                              },
+                                                             "value":  "value::1"
+                                                         },
+                                                         {
+                                                             "id":  "param-expiry-filter",
+                                                             "version":  "KqlParameterItem/1.0",
+                                                             "name":  "ExpiryThreshold",
+                                                             "label":  "Expiry Filter",
+                                                             "type":  2,
+                                                             "isRequired":  true,
+                                                             "typeSettings":  {
+                                                                                  "additionalResourceOptions":  [
+
+                                                                                                                ]
+                                                                              },
+                                                             "jsonData":  "[\r\n {\"value\":\"all\", \"label\":\"All Certificates\", \"selected\":true},\r\n {\"value\":\"Expired\", \"label\":\"Expired (\u003c 0 Days)\"},\r\n {\"value\":\"Critical\", \"label\":\"Critical (\u003c 30 Days)\"},\r\n {\"value\":\"Warning\", \"label\":\"Warning (31 - 60 Days)\"},\r\n {\"value\":\"Attention\", \"label\":\"Attention (61 - 90 Days)\"},\r\n {\"value\":\"Healthy\", \"label\":\"Healthy (\u003e 90 Days)\"}\r\n]"
+                                                         },
+                                                         {
+                                                             "id":  "param-help",
+                                                             "version":  "KqlParameterItem/1.0",
+                                                             "name":  "Help",
+                                                             "label":  "Show Help",
+                                                             "type":  10,
+                                                             "isRequired":  true,
+                                                             "typeSettings":  {
+                                                                                  "additionalResourceOptions":  [
+
+                                                                                                                ]
+                                                                              },
+                                                             "jsonData":  "[\r\n {\"value\":\"Yes\", \"label\":\"Yes\"},\r\n {\"value\":\"No\", \"label\":\"No\", \"selected\":true},\r\n {\"value\":\"Change Log\", \"label\":\"Change Log\"}\r\n]"
+                                                         }
+                                                     ],
+                                      "style":  "pills",
+                                      "queryType":  1,
+                                      "resourceType":  "microsoft.resourcegraph/resources"
+                                  },
+                      "name":  "parameters - Global Filters"
+                  },
+                  {
+                      "type":  1,
+                      "content":  {
+                                      "json":  "### Help \u0026 Overview - Azure Tenant Certificate Monitoring\r\n\r\nThis workbook queries Azure Resource Graph (ARG) in real time across all selected subscriptions in your tenant.\r\n\r\n#### Covered Certificate Asset Types:\r\n1. **App Service Certificates (`microsoft.web/certificates`)**: Custom SSL certificates uploaded or managed for App Services.\r\n2. **App Service Certificate Orders (`microsoft.web/certificateorders`)**: Managed domain certificate orders through Azure, with auto-renew tracking.\r\n3. **Web Apps \u0026 Custom Domain SSL Bindings (`microsoft.web/sites`)**: Maps App Service \u0026 Function App custom hostnames to their bound certificates, thumbprints, and live expiration dates.\r\n4. **Application Gateways (`microsoft.network/applicationgateways`)**: SSL termination certificates, identifying whether they use **Azure Key Vault with auto-rotation** or **manually uploaded blobs**.\r\n5. **API Management (`microsoft.apimanagement/service`)**: Custom domain endpoint certificates (Gateway, Portal, Management) and Key Vault integrations.\r\n6. **Azure Front Door \u0026 CDN (`microsoft.cdn/profiles/customdomains`)**: Edge TLS configurations and custom domain validation status.\r\n7. **Azure Key Vaults (`microsoft.keyvault/vaults`)**: Posture review (Soft Delete, Purge Protection) and Diagnostic Logging recommendations.\r\n\r\n\u003e [!NOTE]\r\n\u003e Azure Resource Graph requires Reader role on target subscriptions to read resource metadata.",
+                                      "style":  "info"
+                                  },
+                      "conditionalVisibility":  {
+                                                    "parameterName":  "Help",
+                                                    "comparison":  "isEqualTo",
+                                                    "value":  "Yes"
+                                                },
+                      "name":  "text - Help Documentation"
+                  },
+                  {
+                      "type":  1,
+                      "content":  {
+                                      "json":  "### Change Log\r\n\r\n| Version | Date | Description |\r\n|---|---|---|\r\n| **v1.0.0** | Initial Release | Initial release of full tenant Azure Certificate Expiry Workbook: App Services, Certificate Orders, Web App SSL bindings, Application Gateways, APIM, Front Door, and Key Vault integration. |",
+                                      "style":  "upsell"
+                                  },
+                      "conditionalVisibility":  {
+                                                    "parameterName":  "Help",
+                                                    "comparison":  "isEqualTo",
+                                                    "value":  "Change Log"
+                                                },
+                      "name":  "text - Change Log"
+                  },
+                  {
+                      "type":  3,
+                      "content":  {
+                                      "version":  "KqlItem/1.0",
+                                      "query":  "resources\r\n| where type =~ \u0027microsoft.web/certificates\u0027\r\n| extend ExpirationDate = todatetime(properties.expirationDate)\r\n| extend DaysRemaining = datetime_diff(\u0027day\u0027, ExpirationDate, now())\r\n| summarize\r\n    TotalCertificates = count(),\r\n    Expired = countif(DaysRemaining \u003c 0),\r\n    Critical30Days = countif(DaysRemaining \u003e= 0 and DaysRemaining \u003c= 30),\r\n    Warning60Days = countif(DaysRemaining \u003e 30 and DaysRemaining \u003c= 60),\r\n    Attention90Days = countif(DaysRemaining \u003e 60 and DaysRemaining \u003c= 90),\r\n    Healthy = countif(DaysRemaining \u003e 90)\r\n| extend Dummy = 1\r\n| project-away Dummy",
+                                      "size":  4,
+                                      "title":  "Certificate Health Overview (Tenant-Wide)",
+                                      "queryType":  1,
+                                      "resourceType":  "microsoft.resourcegraph/resources",
+                                      "crossComponentResources":  [
+                                                                      "{Subscriptions}"
+                                                                  ],
+                                      "visualization":  "tiles",
+                                      "tileSettings":  {
+                                                           "showBorder":  true,
+                                                           "titleContent":  {
+                                                                                "columnMatch":  "TotalCertificates",
+                                                                                "formatter":  1
+                                                                            },
+                                                           "leftContent":  {
+                                                                               "columnMatch":  "TotalCertificates",
+                                                                               "formatter":  12,
+                                                                               "formatOptions":  {
+                                                                                                     "palette":  "auto"
+                                                                                                 }
+                                                                           }
+                                                       }
+                                  },
+                      "name":  "query - Top KPI Metrics"
+                  },
+                  {
+                      "type":  11,
+                      "content":  {
+                                      "version":  "LinkItem/1.0",
+                                      "style":  "tabs",
+                                      "links":  [
+                                                    {
+                                                        "id":  "tab-overview",
+                                                        "cellValue":  "selectedTab",
+                                                        "linkTarget":  "parameter",
+                                                        "linkLabel":  "Executive Overview",
+                                                        "subTarget":  "overview",
+                                                        "style":  "link"
+                                                    },
+                                                    {
+                                                        "id":  "tab-appservice",
+                                                        "cellValue":  "selectedTab",
+                                                        "linkTarget":  "parameter",
+                                                        "linkLabel":  "App Service Certificates",
+                                                        "subTarget":  "appservice",
+                                                        "style":  "link"
+                                                    },
+                                                    {
+                                                        "id":  "tab-certorders",
+                                                        "cellValue":  "selectedTab",
+                                                        "linkTarget":  "parameter",
+                                                        "linkLabel":  "Certificate Orders",
+                                                        "subTarget":  "certorders",
+                                                        "style":  "link"
+                                                    },
+                                                    {
+                                                        "id":  "tab-sslbindings",
+                                                        "cellValue":  "selectedTab",
+                                                        "linkTarget":  "parameter",
+                                                        "linkLabel":  "Web Apps \u0026 SSL Bindings",
+                                                        "subTarget":  "sslbindings",
+                                                        "style":  "link"
+                                                    },
+                                                    {
+                                                        "id":  "tab-appgateway",
+                                                        "cellValue":  "selectedTab",
+                                                        "linkTarget":  "parameter",
+                                                        "linkLabel":  "Application Gateways",
+                                                        "subTarget":  "appgateway",
+                                                        "style":  "link"
+                                                    },
+                                                    {
+                                                        "id":  "tab-apim",
+                                                        "cellValue":  "selectedTab",
+                                                        "linkTarget":  "parameter",
+                                                        "linkLabel":  "API Management",
+                                                        "subTarget":  "apim",
+                                                        "style":  "link"
+                                                    },
+                                                    {
+                                                        "id":  "tab-frontdoor",
+                                                        "cellValue":  "selectedTab",
+                                                        "linkTarget":  "parameter",
+                                                        "linkLabel":  "Front Door \u0026 CDN",
+                                                        "subTarget":  "frontdoor",
+                                                        "style":  "link"
+                                                    },
+                                                    {
+                                                        "id":  "tab-keyvault",
+                                                        "cellValue":  "selectedTab",
+                                                        "linkTarget":  "parameter",
+                                                        "linkLabel":  "Key Vaults \u0026 Monitoring",
+                                                        "subTarget":  "keyvault",
+                                                        "style":  "link"
+                                                    }
+                                                ]
+                                  },
+                      "name":  "links - Navigation Tabs",
+                      "styleSettings":  {
+                                            "padding":  "0 0 15px 0"
+                                        }
+                  },
+                  {
+                      "type":  12,
+                      "content":  {
+                                      "version":  "NotebookGroup/1.0",
+                                      "groupType":  "editable",
+                                      "items":  [
+                                                    {
+                                                        "type":  1,
+                                                        "content":  {
+                                                                        "json":  "### Executive Expiry Breakdown \u0026 Timeline\r\nVisual distribution of certificate lifecycles across status tiers, subscriptions, and geographic regions."
+                                                                    },
+                                                        "name":  "text - Overview Intro"
+                                                    },
+                                                    {
+                                                        "type":  3,
+                                                        "content":  {
+                                                                        "version":  "KqlItem/1.0",
+                                                                        "query":  "resources\r\n| where type =~ \u0027microsoft.web/certificates\u0027\r\n| extend ExpirationDate = todatetime(properties.expirationDate)\r\n| extend DaysRemaining = datetime_diff(\u0027day\u0027, ExpirationDate, now())\r\n| extend StatusTier = case(\r\n    isnull(ExpirationDate), \u0027Unknown\u0027,\r\n    DaysRemaining \u003c 0, \u00271. Expired\u0027,\r\n    DaysRemaining \u003c= 30, \u00272. Critical (\u003c 30 Days)\u0027,\r\n    DaysRemaining \u003c= 60, \u00273. Warning (31 - 60 Days)\u0027,\r\n    DaysRemaining \u003c= 90, \u00274. Attention (61 - 90 Days)\u0027,\r\n    \u00275. Healthy (\u003e 90 Days)\u0027\r\n)\r\n| summarize Count = count() by StatusTier\r\n| sort by StatusTier asc",
+                                                                        "size":  0,
+                                                                        "title":  "Certificates by Expiry Status Tier",
+                                                                        "queryType":  1,
+                                                                        "resourceType":  "microsoft.resourcegraph/resources",
+                                                                        "crossComponentResources":  [
+                                                                                                        "{Subscriptions}"
+                                                                                                    ],
+                                                                        "visualization":  "piechart"
+                                                                    },
+                                                        "name":  "query - Status Tier Pie Chart",
+                                                        "customWidth":  "50"
+                                                    },
+                                                    {
+                                                        "type":  3,
+                                                        "content":  {
+                                                                        "version":  "KqlItem/1.0",
+                                                                        "query":  "resources\r\n| where type =~ \u0027microsoft.web/certificates\u0027\r\n| extend ExpirationDate = todatetime(properties.expirationDate)\r\n| extend DaysRemaining = datetime_diff(\u0027day\u0027, ExpirationDate, now())\r\n| extend Category = iff(DaysRemaining \u003c 0, \u0027Expired\u0027, iff(DaysRemaining \u003c= 90, \u0027Expiring Soon\u0027, \u0027Healthy\u0027))\r\n| summarize Count = count() by subscriptionId, Category",
+                                                                        "size":  0,
+                                                                        "title":  "Expiry Distribution by Subscription",
+                                                                        "queryType":  1,
+                                                                        "resourceType":  "microsoft.resourcegraph/resources",
+                                                                        "crossComponentResources":  [
+                                                                                                        "{Subscriptions}"
+                                                                                                    ],
+                                                                        "visualization":  "barchart"
+                                                                    },
+                                                        "name":  "query - Subscription Bar Chart",
+                                                        "customWidth":  "50"
+                                                    },
+                                                    {
+                                                        "type":  3,
+                                                        "content":  {
+                                                                        "version":  "KqlItem/1.0",
+                                                                        "query":  "resources\r\n| where type =~ \u0027microsoft.web/certificates\u0027\r\n| summarize Count = count() by location\r\n| sort by Count desc",
+                                                                        "size":  0,
+                                                                        "title":  "Geographic Distribution of Certificates",
+                                                                        "queryType":  1,
+                                                                        "resourceType":  "microsoft.resourcegraph/resources",
+                                                                        "crossComponentResources":  [
+                                                                                                        "{Subscriptions}"
+                                                                                                    ],
+                                                                        "visualization":  "map",
+                                                                        "mapSettings":  {
+                                                                                            "locInfo":  "AzureLoc",
+                                                                                            "locInfoColumn":  "location",
+                                                                                            "sizeSettings":  "Count",
+                                                                                            "sizeAggregation":  "Sum",
+                                                                                            "labelSettings":  "location",
+                                                                                            "legendMetric":  "Count",
+                                                                                            "legendAggregation":  "Sum",
+                                                                                            "itemColorSettings":  {
+                                                                                                                      "nodeColorField":  "Count",
+                                                                                                                      "colorAggregation":  "Sum",
+                                                                                                                      "type":  "heatmap",
+                                                                                                                      "heatmapPalette":  "blue"
+                                                                                                                  }
+                                                                                        }
+                                                                    },
+                                                        "name":  "query - Map of Certificates"
+                                                    },
+                                                    {
+                                                        "type":  3,
+                                                        "content":  {
+                                                                        "version":  "KqlItem/1.0",
+                                                                        "query":  "resources\r\n| where type =~ \u0027microsoft.web/certificates\u0027\r\n| extend ExpirationDate = todatetime(properties.expirationDate)\r\n| extend DaysRemaining = datetime_diff(\u0027day\u0027, ExpirationDate, now())\r\n| where DaysRemaining \u003c= 90\r\n| extend Urgency = case(\r\n    DaysRemaining \u003c 0, \u0027Expired\u0027,\r\n    DaysRemaining \u003c= 30, \u0027Critical (\u003c 30 Days)\u0027,\r\n    DaysRemaining \u003c= 60, \u0027Warning (31 - 60 Days)\u0027,\r\n    \u0027Attention (61 - 90 Days)\u0027\r\n)\r\n| extend Subject = tostring(properties.subjectName)\r\n| extend Issuer = tostring(properties.issuer)\r\n| extend Thumbprint = tostring(properties.thumbprint)\r\n| extend KeyVaultId = tostring(properties.keyVaultId)\r\n| project Certificate = id, Subject, Issuer, ExpirationDate, DaysRemaining, Urgency, Thumbprint, KeyVaultId, resourceGroup, subscriptionId\r\n| sort by DaysRemaining asc",
+                                                                        "size":  2,
+                                                                        "title":  "Urgent Action Required: Expired or Expiring within 90 Days",
+                                                                        "noDataMessage":  "All certificates are valid and healthy (\u003e 90 days remaining).",
+                                                                        "showExportToExcel":  true,
+                                                                        "queryType":  1,
+                                                                        "resourceType":  "microsoft.resourcegraph/resources",
+                                                                        "crossComponentResources":  [
+                                                                                                        "{Subscriptions}"
+                                                                                                    ],
+                                                                        "visualization":  "table",
+                                                                        "gridSettings":  {
+                                                                                             "filter":  true,
+                                                                                             "sortBy":  [
+                                                                                                            {
+                                                                                                                "itemKey":  "DaysRemaining",
+                                                                                                                "sortOrder":  1
+                                                                                                            }
+                                                                                                        ],
+                                                                                             "formatters":  [
+                                                                                                                {
+                                                                                                                    "columnMatch":  "Certificate",
+                                                                                                                    "formatter":  13,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "linkTarget":  "Resource",
+                                                                                                                                          "showIcon":  true
+                                                                                                                                      }
+                                                                                                                },
+                                                                                                                {
+                                                                                                                    "columnMatch":  "DaysRemaining",
+                                                                                                                    "formatter":  18,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "thresholdsOptions":  "icons",
+                                                                                                                                          "thresholdsGrid":  [
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "\u003c=",
+                                                                                                                                                                     "thresholdValue":  "0",
+                                                                                                                                                                     "representation":  "3",
+                                                                                                                                                                     "text":  "{0} Days (Expired)"
+                                                                                                                                                                 },
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "\u003c=",
+                                                                                                                                                                     "thresholdValue":  "30",
+                                                                                                                                                                     "representation":  "2",
+                                                                                                                                                                     "text":  "{0} Days (Critical)"
+                                                                                                                                                                 },
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "\u003c=",
+                                                                                                                                                                     "thresholdValue":  "90",
+                                                                                                                                                                     "representation":  "4",
+                                                                                                                                                                     "text":  "{0} Days"
+                                                                                                                                                                 },
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "Default",
+                                                                                                                                                                     "thresholdValue":  null,
+                                                                                                                                                                     "representation":  "success",
+                                                                                                                                                                     "text":  "{0} Days"
+                                                                                                                                                                 }
+                                                                                                                                                             ]
+                                                                                                                                      }
+                                                                                                                },
+                                                                                                                {
+                                                                                                                    "columnMatch":  "ExpirationDate",
+                                                                                                                    "formatter":  6
+                                                                                                                },
+                                                                                                                {
+                                                                                                                    "columnMatch":  "KeyVaultId",
+                                                                                                                    "formatter":  13,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "linkTarget":  "Resource",
+                                                                                                                                          "showIcon":  true
+                                                                                                                                      }
+                                                                                                                }
+                                                                                                            ]
+                                                                                         }
+                                                                    },
+                                                        "name":  "query - Urgent Certificates Table"
+                                                    }
+                                                ]
+                                  },
+                      "conditionalVisibility":  {
+                                                    "parameterName":  "selectedTab",
+                                                    "comparison":  "isEqualTo",
+                                                    "value":  "overview"
+                                                },
+                      "name":  "group - Overview Tab"
+                  },
+                  {
+                      "type":  12,
+                      "content":  {
+                                      "version":  "NotebookGroup/1.0",
+                                      "groupType":  "editable",
+                                      "items":  [
+                                                    {
+                                                        "type":  1,
+                                                        "content":  {
+                                                                        "json":  "### App Service Certificates Inventory (`microsoft.web/certificates`)\r\nAll custom and managed SSL certificates uploaded to App Services across your subscriptions. Use the **Expiry Filter** above to isolate critical or expired certificates."
+                                                                    },
+                                                        "name":  "text - App Service Intro"
+                                                    },
+                                                    {
+                                                        "type":  3,
+                                                        "content":  {
+                                                                        "version":  "KqlItem/1.0",
+                                                                        "query":  "resources\r\n| where type =~ \u0027microsoft.web/certificates\u0027\r\n| extend ExpirationDate = todatetime(properties.expirationDate)\r\n| extend IssueDate = todatetime(properties.issueDate)\r\n| extend DaysRemaining = datetime_diff(\u0027day\u0027, ExpirationDate, now())\r\n| extend ExpiryStatus = case(\r\n    isnull(ExpirationDate), \u0027Unknown\u0027,\r\n    DaysRemaining \u003c 0, \u0027Expired\u0027,\r\n    DaysRemaining \u003c= 30, \u0027Critical (\u003c 30 Days)\u0027,\r\n    DaysRemaining \u003c= 60, \u0027Warning (31 - 60 Days)\u0027,\r\n    DaysRemaining \u003c= 90, \u0027Attention (61 - 90 Days)\u0027,\r\n    \u0027Healthy (\u003e 90 Days)\u0027\r\n)\r\n| extend ExpiryFilterKey = case(\r\n    isnull(ExpirationDate), \u0027Unknown\u0027,\r\n    DaysRemaining \u003c 0, \u0027Expired\u0027,\r\n    DaysRemaining \u003c= 30, \u0027Critical\u0027,\r\n    DaysRemaining \u003c= 60, \u0027Warning\u0027,\r\n    DaysRemaining \u003c= 90, \u0027Attention\u0027,\r\n    \u0027Healthy\u0027\r\n)\r\n| where \u0027{ExpiryThreshold}\u0027 == \u0027all\u0027 or ExpiryFilterKey == \u0027{ExpiryThreshold}\u0027\r\n| extend Subject = tostring(properties.subjectName)\r\n| extend Issuer = tostring(properties.issuer)\r\n| extend Thumbprint = tostring(properties.thumbprint)\r\n| extend KeyVaultId = tostring(properties.keyVaultId)\r\n| extend IsValid = tostring(properties.valid)\r\n| project Certificate = id, Subject, Issuer, ExpirationDate, DaysRemaining, ExpiryStatus, IsValid, Thumbprint, KeyVaultId, resourceGroup, subscriptionId\r\n| sort by DaysRemaining asc",
+                                                                        "size":  2,
+                                                                        "title":  "App Service Certificates Table",
+                                                                        "noDataMessage":  "No certificates match the selected subscription and threshold filters.",
+                                                                        "showExportToExcel":  true,
+                                                                        "queryType":  1,
+                                                                        "resourceType":  "microsoft.resourcegraph/resources",
+                                                                        "crossComponentResources":  [
+                                                                                                        "{Subscriptions}"
+                                                                                                    ],
+                                                                        "visualization":  "table",
+                                                                        "gridSettings":  {
+                                                                                             "filter":  true,
+                                                                                             "hierarchySettings":  {
+                                                                                                                       "treeType":  1,
+                                                                                                                       "groupBy":  [
+                                                                                                                                       "subscriptionId"
+                                                                                                                                   ],
+                                                                                                                       "expandTopLevel":  true,
+                                                                                                                       "finalBy":  "Certificate"
+                                                                                                                   },
+                                                                                             "sortBy":  [
+                                                                                                            {
+                                                                                                                "itemKey":  "DaysRemaining",
+                                                                                                                "sortOrder":  1
+                                                                                                            }
+                                                                                                        ],
+                                                                                             "formatters":  [
+                                                                                                                {
+                                                                                                                    "columnMatch":  "$gen_group",
+                                                                                                                    "formatter":  13,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "showIcon":  true
+                                                                                                                                      }
+                                                                                                                },
+                                                                                                                {
+                                                                                                                    "columnMatch":  "Certificate",
+                                                                                                                    "formatter":  13,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "linkTarget":  "Resource",
+                                                                                                                                          "showIcon":  true
+                                                                                                                                      }
+                                                                                                                },
+                                                                                                                {
+                                                                                                                    "columnMatch":  "DaysRemaining",
+                                                                                                                    "formatter":  18,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "thresholdsOptions":  "icons",
+                                                                                                                                          "thresholdsGrid":  [
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "\u003c=",
+                                                                                                                                                                     "thresholdValue":  "0",
+                                                                                                                                                                     "representation":  "3",
+                                                                                                                                                                     "text":  "{0} Days (Expired)"
+                                                                                                                                                                 },
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "\u003c=",
+                                                                                                                                                                     "thresholdValue":  "30",
+                                                                                                                                                                     "representation":  "2",
+                                                                                                                                                                     "text":  "{0} Days (Critical)"
+                                                                                                                                                                 },
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "\u003c=",
+                                                                                                                                                                     "thresholdValue":  "90",
+                                                                                                                                                                     "representation":  "4",
+                                                                                                                                                                     "text":  "{0} Days"
+                                                                                                                                                                 },
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "Default",
+                                                                                                                                                                     "thresholdValue":  null,
+                                                                                                                                                                     "representation":  "success",
+                                                                                                                                                                     "text":  "{0} Days"
+                                                                                                                                                                 }
+                                                                                                                                                             ]
+                                                                                                                                      }
+                                                                                                                },
+                                                                                                                {
+                                                                                                                    "columnMatch":  "ExpirationDate",
+                                                                                                                    "formatter":  6
+                                                                                                                },
+                                                                                                                {
+                                                                                                                    "columnMatch":  "KeyVaultId",
+                                                                                                                    "formatter":  13,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "linkTarget":  "Resource",
+                                                                                                                                          "showIcon":  true
+                                                                                                                                      }
+                                                                                                                }
+                                                                                                            ]
+                                                                                         }
+                                                                    },
+                                                        "name":  "query - App Service Certificates Grid"
+                                                    }
+                                                ]
+                                  },
+                      "conditionalVisibility":  {
+                                                    "parameterName":  "selectedTab",
+                                                    "comparison":  "isEqualTo",
+                                                    "value":  "appservice"
+                                                },
+                      "name":  "group - App Service Tab"
+                  },
+                  {
+                      "type":  12,
+                      "content":  {
+                                      "version":  "NotebookGroup/1.0",
+                                      "groupType":  "editable",
+                                      "items":  [
+                                                    {
+                                                        "type":  1,
+                                                        "content":  {
+                                                                        "json":  "### App Service Certificate Orders (`microsoft.web/certificateorders`)\r\nTracks domain certificate orders created via the Azure Portal, including auto-renew status, issuance state, and renewal deadlines."
+                                                                    },
+                                                        "name":  "text - Certificate Orders Intro"
+                                                    },
+                                                    {
+                                                        "type":  3,
+                                                        "content":  {
+                                                                        "version":  "KqlItem/1.0",
+                                                                        "query":  "resources\r\n| where type =~ \u0027microsoft.web/certificateorders\u0027\r\n| extend ExpirationTime = todatetime(properties.expirationTime)\r\n| extend DaysRemaining = datetime_diff(\u0027day\u0027, ExpirationTime, now())\r\n| extend ExpiryStatus = case(\r\n    isnull(ExpirationTime), \u0027Unknown\u0027,\r\n    DaysRemaining \u003c 0, \u0027Expired\u0027,\r\n    DaysRemaining \u003c= 30, \u0027Critical (\u003c 30 Days)\u0027,\r\n    DaysRemaining \u003c= 60, \u0027Warning (31 - 60 Days)\u0027,\r\n    DaysRemaining \u003c= 90, \u0027Attention (61 - 90 Days)\u0027,\r\n    \u0027Healthy (\u003e 90 Days)\u0027\r\n)\r\n| extend ExpiryFilterKey = case(\r\n    isnull(ExpirationTime), \u0027Unknown\u0027,\r\n    DaysRemaining \u003c 0, \u0027Expired\u0027,\r\n    DaysRemaining \u003c= 30, \u0027Critical\u0027,\r\n    DaysRemaining \u003c= 60, \u0027Warning\u0027,\r\n    DaysRemaining \u003c= 90, \u0027Attention\u0027,\r\n    \u0027Healthy\u0027\r\n)\r\n| where \u0027{ExpiryThreshold}\u0027 == \u0027all\u0027 or ExpiryFilterKey == \u0027{ExpiryThreshold}\u0027\r\n| extend Domain = tostring(properties.distinguishedName)\r\n| extend ProductType = tostring(properties.productType)\r\n| extend AutoRenew = tostring(properties.autoRenew)\r\n| extend OrderStatus = tostring(properties.status)\r\n| extend ProvisioningState = tostring(properties.provisioningState)\r\n| extend KeyVaultId = tostring(properties.keyVaultId)\r\n| project Order = id, Domain, ProductType, AutoRenew, OrderStatus, ProvisioningState, ExpirationTime, DaysRemaining, ExpiryStatus, KeyVaultId, resourceGroup, subscriptionId\r\n| sort by DaysRemaining asc",
+                                                                        "size":  2,
+                                                                        "title":  "App Service Certificate Orders",
+                                                                        "noDataMessage":  "No App Service Certificate Orders found in selected subscriptions.",
+                                                                        "showExportToExcel":  true,
+                                                                        "queryType":  1,
+                                                                        "resourceType":  "microsoft.resourcegraph/resources",
+                                                                        "crossComponentResources":  [
+                                                                                                        "{Subscriptions}"
+                                                                                                    ],
+                                                                        "visualization":  "table",
+                                                                        "gridSettings":  {
+                                                                                             "filter":  true,
+                                                                                             "hierarchySettings":  {
+                                                                                                                       "treeType":  1,
+                                                                                                                       "groupBy":  [
+                                                                                                                                       "subscriptionId"
+                                                                                                                                   ],
+                                                                                                                       "expandTopLevel":  true,
+                                                                                                                       "finalBy":  "Order"
+                                                                                                                   },
+                                                                                             "sortBy":  [
+                                                                                                            {
+                                                                                                                "itemKey":  "DaysRemaining",
+                                                                                                                "sortOrder":  1
+                                                                                                            }
+                                                                                                        ],
+                                                                                             "formatters":  [
+                                                                                                                {
+                                                                                                                    "columnMatch":  "Order",
+                                                                                                                    "formatter":  13,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "linkTarget":  "Resource",
+                                                                                                                                          "showIcon":  true
+                                                                                                                                      }
+                                                                                                                },
+                                                                                                                {
+                                                                                                                    "columnMatch":  "DaysRemaining",
+                                                                                                                    "formatter":  18,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "thresholdsOptions":  "icons",
+                                                                                                                                          "thresholdsGrid":  [
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "\u003c=",
+                                                                                                                                                                     "thresholdValue":  "0",
+                                                                                                                                                                     "representation":  "3",
+                                                                                                                                                                     "text":  "{0} Days (Expired)"
+                                                                                                                                                                 },
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "\u003c=",
+                                                                                                                                                                     "thresholdValue":  "30",
+                                                                                                                                                                     "representation":  "2",
+                                                                                                                                                                     "text":  "{0} Days (Critical)"
+                                                                                                                                                                 },
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "Default",
+                                                                                                                                                                     "thresholdValue":  null,
+                                                                                                                                                                     "representation":  "success",
+                                                                                                                                                                     "text":  "{0} Days"
+                                                                                                                                                                 }
+                                                                                                                                                             ]
+                                                                                                                                      }
+                                                                                                                },
+                                                                                                                {
+                                                                                                                    "columnMatch":  "ExpirationTime",
+                                                                                                                    "formatter":  6
+                                                                                                                },
+                                                                                                                {
+                                                                                                                    "columnMatch":  "KeyVaultId",
+                                                                                                                    "formatter":  13,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "linkTarget":  "Resource",
+                                                                                                                                          "showIcon":  true
+                                                                                                                                      }
+                                                                                                                }
+                                                                                                            ]
+                                                                                         }
+                                                                    },
+                                                        "name":  "query - Certificate Orders Grid"
+                                                    }
+                                                ]
+                                  },
+                      "conditionalVisibility":  {
+                                                    "parameterName":  "selectedTab",
+                                                    "comparison":  "isEqualTo",
+                                                    "value":  "certorders"
+                                                },
+                      "name":  "group - Certificate Orders Tab"
+                  },
+                  {
+                      "type":  12,
+                      "content":  {
+                                      "version":  "NotebookGroup/1.0",
+                                      "groupType":  "editable",
+                                      "items":  [
+                                                    {
+                                                        "type":  1,
+                                                        "content":  {
+                                                                        "json":  "### Web Apps \u0026 Custom Hostname SSL Bindings (`microsoft.web/sites`)\r\nCorrelates Web Apps and Function Apps with their custom domain SSL host bindings, bound certificate thumbprints, and live expiration dates."
+                                                                    },
+                                                        "name":  "text - SSL Bindings Intro"
+                                                    },
+                                                    {
+                                                        "type":  3,
+                                                        "content":  {
+                                                                        "version":  "KqlItem/1.0",
+                                                                        "query":  "resources\r\n| where type =~ \u0027microsoft.web/sites\u0027\r\n| mv-expand ssl = properties.hostNameSslStates\r\n| extend sslState = tostring(ssl.sslState), hostName = tostring(ssl.name), thumbprint = tostring(ssl.thumbprint)\r\n| where sslState != \u0027Disabled\u0027 and isnotempty(thumbprint)\r\n| project siteId = id, siteName = name, hostName, sslState, thumbprint, kind, resourceGroup, subscriptionId\r\n| join kind=leftouter (\r\n    resources\r\n    | where type =~ \u0027microsoft.web/certificates\u0027\r\n    | extend ExpirationDate = todatetime(properties.expirationDate)\r\n    | extend DaysRemaining = datetime_diff(\u0027day\u0027, ExpirationDate, now())\r\n    | extend ExpiryStatus = case(\r\n        isnull(ExpirationDate), \u0027Unknown\u0027,\r\n        DaysRemaining \u003c 0, \u0027Expired\u0027,\r\n        DaysRemaining \u003c= 30, \u0027Critical (\u003c 30 Days)\u0027,\r\n        DaysRemaining \u003c= 60, \u0027Warning (31 - 60 Days)\u0027,\r\n        DaysRemaining \u003c= 90, \u0027Attention (61 - 90 Days)\u0027,\r\n        \u0027Healthy (\u003e 90 Days)\u0027\r\n    )\r\n    | extend ExpiryFilterKey = case(\r\n        isnull(ExpirationDate), \u0027Unknown\u0027,\r\n        DaysRemaining \u003c 0, \u0027Expired\u0027,\r\n        DaysRemaining \u003c= 30, \u0027Critical\u0027,\r\n        DaysRemaining \u003c= 60, \u0027Warning\u0027,\r\n        DaysRemaining \u003c= 90, \u0027Attention\u0027,\r\n        \u0027Healthy\u0027\r\n    )\r\n    | extend Subject = tostring(properties.subjectName)\r\n    | extend Issuer = tostring(properties.issuer)\r\n    | extend thumbprint = tostring(properties.thumbprint)\r\n    | project certId = id, certName = name, Subject, Issuer, ExpirationDate, DaysRemaining, ExpiryStatus, ExpiryFilterKey, thumbprint\r\n) on thumbprint\r\n| where \u0027{ExpiryThreshold}\u0027 == \u0027all\u0027 or isempty(ExpiryFilterKey) or ExpiryFilterKey == \u0027{ExpiryThreshold}\u0027\r\n| project AppService = siteId, HostName = hostName, SSLState = sslState, Certificate = certId, Subject, Issuer, ExpirationDate, DaysRemaining, ExpiryStatus, Thumbprint = thumbprint, Kind = kind, resourceGroup, subscriptionId\r\n| sort by DaysRemaining asc",
+                                                                        "size":  2,
+                                                                        "title":  "Web Apps SSL Hostname Bindings \u0026 Expiry",
+                                                                        "noDataMessage":  "No active SSL host bindings found matching criteria.",
+                                                                        "showExportToExcel":  true,
+                                                                        "queryType":  1,
+                                                                        "resourceType":  "microsoft.resourcegraph/resources",
+                                                                        "crossComponentResources":  [
+                                                                                                        "{Subscriptions}"
+                                                                                                    ],
+                                                                        "visualization":  "table",
+                                                                        "gridSettings":  {
+                                                                                             "filter":  true,
+                                                                                             "hierarchySettings":  {
+                                                                                                                       "treeType":  1,
+                                                                                                                       "groupBy":  [
+                                                                                                                                       "subscriptionId"
+                                                                                                                                   ],
+                                                                                                                       "expandTopLevel":  true,
+                                                                                                                       "finalBy":  "AppService"
+                                                                                                                   },
+                                                                                             "sortBy":  [
+                                                                                                            {
+                                                                                                                "itemKey":  "DaysRemaining",
+                                                                                                                "sortOrder":  1
+                                                                                                            }
+                                                                                                        ],
+                                                                                             "formatters":  [
+                                                                                                                {
+                                                                                                                    "columnMatch":  "AppService",
+                                                                                                                    "formatter":  13,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "linkTarget":  "Resource",
+                                                                                                                                          "showIcon":  true
+                                                                                                                                      }
+                                                                                                                },
+                                                                                                                {
+                                                                                                                    "columnMatch":  "Certificate",
+                                                                                                                    "formatter":  13,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "linkTarget":  "Resource",
+                                                                                                                                          "showIcon":  true
+                                                                                                                                      }
+                                                                                                                },
+                                                                                                                {
+                                                                                                                    "columnMatch":  "DaysRemaining",
+                                                                                                                    "formatter":  18,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "thresholdsOptions":  "icons",
+                                                                                                                                          "thresholdsGrid":  [
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "\u003c=",
+                                                                                                                                                                     "thresholdValue":  "0",
+                                                                                                                                                                     "representation":  "3",
+                                                                                                                                                                     "text":  "{0} Days (Expired)"
+                                                                                                                                                                 },
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "\u003c=",
+                                                                                                                                                                     "thresholdValue":  "30",
+                                                                                                                                                                     "representation":  "2",
+                                                                                                                                                                     "text":  "{0} Days (Critical)"
+                                                                                                                                                                 },
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "Default",
+                                                                                                                                                                     "thresholdValue":  null,
+                                                                                                                                                                     "representation":  "success",
+                                                                                                                                                                     "text":  "{0} Days"
+                                                                                                                                                                 }
+                                                                                                                                                             ]
+                                                                                                                                      }
+                                                                                                                },
+                                                                                                                {
+                                                                                                                    "columnMatch":  "ExpirationDate",
+                                                                                                                    "formatter":  6
+                                                                                                                }
+                                                                                                            ]
+                                                                                         }
+                                                                    },
+                                                        "name":  "query - SSL Bindings Table"
+                                                    }
+                                                ]
+                                  },
+                      "conditionalVisibility":  {
+                                                    "parameterName":  "selectedTab",
+                                                    "comparison":  "isEqualTo",
+                                                    "value":  "sslbindings"
+                                                },
+                      "name":  "group - SSL Bindings Tab"
+                  },
+                  {
+                      "type":  12,
+                      "content":  {
+                                      "version":  "NotebookGroup/1.0",
+                                      "groupType":  "editable",
+                                      "items":  [
+                                                    {
+                                                        "type":  1,
+                                                        "content":  {
+                                                                        "json":  "### Application Gateways SSL Certificates (`microsoft.network/applicationgateways`)\r\nIdentifies SSL listeners and whether certificates are integrated with **Azure Key Vault for automated rotation** vs **manual file uploads**."
+                                                                    },
+                                                        "name":  "text - App Gateway Intro"
+                                                    },
+                                                    {
+                                                        "type":  3,
+                                                        "content":  {
+                                                                        "version":  "KqlItem/1.0",
+                                                                        "query":  "AppGatewayCertificates_CL\r\n| extend DaysRemaining = toint(DaysRemaining_d)\r\n| extend ExpirationDate = todatetime(NotAfter_s)\r\n| extend ExpiryGroup = case(\r\n    DaysRemaining \u003c 0, \u0027Expired\u0027,\r\n    DaysRemaining \u003c= 30, \u0027Critical\u0027,\r\n    DaysRemaining \u003c= 60, \u0027Warning\u0027,\r\n    DaysRemaining \u003c= 90, \u0027Attention\u0027,\r\n    \u0027Healthy\u0027\r\n)\r\n| where \u0027{ExpiryThreshold}\u0027 == \u0027all\u0027 or ExpiryGroup == \u0027{ExpiryThreshold}\u0027\r\n| project \r\n    AppGateway = AppGatewayName_s,\r\n    Certificate = CertificateName_s,\r\n    CertificateSource = CertificateSource_s,\r\n    Subject = Subject_s,\r\n    ExpirationDate,\r\n    DaysRemaining,\r\n    ExpiryStatus = ExpiryStatus_s,\r\n    Thumbprint = Thumbprint_s,\r\n    ResourceGroup = ResourceGroup_s,\r\n    Subscription = SubscriptionId_s\r\n| sort by DaysRemaining asc",
+                                                                        "size":  2,
+                                                                        "title":  "Decoded Direct Upload Certificates \u0026 Expiry (via Log Analytics Sync)",
+                                                                        "noDataMessage":  "No decoded certificate records found in Log Analytics yet. Run scripts/Sync-AppGatewayCertificatesToLogAnalytics.ps1 to populate this table.",
+                                                                        "showExportToExcel":  true,
+                                                                        "queryType":  0,
+                                                                        "resourceType":  "microsoft.operationalinsights/workspaces",
+                                                                        "crossComponentResources":  [
+                                                                                                        "{Workspace}"
+                                                                                                    ],
+                                                                        "visualization":  "table",
+                                                                        "gridSettings":  {
+                                                                                             "filter":  true,
+                                                                                             "sortBy":  [
+                                                                                                            {
+                                                                                                                "itemKey":  "DaysRemaining",
+                                                                                                                "sortOrder":  1
+                                                                                                            }
+                                                                                                        ],
+                                                                                             "formatters":  [
+                                                                                                                {
+                                                                                                                    "columnMatch":  "DaysRemaining",
+                                                                                                                    "formatter":  18,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "thresholdsOptions":  "icons",
+                                                                                                                                          "thresholdsGrid":  [
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "\u003c=",
+                                                                                                                                                                     "thresholdValue":  "0",
+                                                                                                                                                                     "representation":  "3",
+                                                                                                                                                                     "text":  "{0} Days (Expired)"
+                                                                                                                                                                 },
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "\u003c=",
+                                                                                                                                                                     "thresholdValue":  "30",
+                                                                                                                                                                     "representation":  "2",
+                                                                                                                                                                     "text":  "{0} Days (Critical)"
+                                                                                                                                                                 },
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "\u003c=",
+                                                                                                                                                                     "thresholdValue":  "90",
+                                                                                                                                                                     "representation":  "4",
+                                                                                                                                                                     "text":  "{0} Days"
+                                                                                                                                                                 },
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "Default",
+                                                                                                                                                                     "thresholdValue":  null,
+                                                                                                                                                                     "representation":  "success",
+                                                                                                                                                                     "text":  "{0} Days"
+                                                                                                                                                                 }
+                                                                                                                                                             ]
+                                                                                                                                      }
+                                                                                                                },
+                                                                                                                {
+                                                                                                                    "columnMatch":  "ExpirationDate",
+                                                                                                                    "formatter":  6
+                                                                                                                }
+                                                                                                            ]
+                                                                                         }
+                                                                    },
+                                                        "name":  "query - App Gateway Decoded Log Analytics Table",
+                                                        "conditionalVisibility":  {
+                                                                                      "parameterName":  "Workspace",
+                                                                                      "comparison":  "isNotEqualTo",
+                                                                                      "value":  ""
+                                                                                  }
+                                                    },
+                                                    {
+                                                        "type":  3,
+                                                        "content":  {
+                                                                        "version":  "KqlItem/1.0",
+                                                                        "query":  "resources\n| where type =~ \u0027microsoft.network/applicationgateways\u0027\n| mv-expand cert = properties.sslCertificates\n| extend certName = tostring(cert.name)\n| extend keyVaultSecretId = tostring(cert.properties.keyVaultSecretId)\n| extend certProvisioningState = tostring(cert.properties.provisioningState)\n| extend KeyVaultIntegration = iff(isnotempty(keyVaultSecretId), \u0027Integrated with Key Vault\u0027, \u0027Direct Upload (Manual)\u0027)\n| extend AutoRotation = iff(isempty(keyVaultSecretId), \u0027None (Direct Upload)\u0027, iff(keyVaultSecretId matches regex @\u0027/[0-9a-f]{32}$\u0027, \u0027Pinned Version (Manual Update)\u0027, \u0027Auto-Rotate (Unversioned URI)\u0027))\n| extend TaggedExpiry = tostring(tags[strcat(\u0027CertExpiry_\u0027, certName)])\n| extend TaggedDays = toint(tags[strcat(\u0027CertDays_\u0027, certName)])\n| extend ExpirationDate = iff(isnotempty(TaggedExpiry), TaggedExpiry, \u0027Run sync script to populate\u0027)\n| project ApplicationGateway = id, CertificateName = certName, KeyVaultIntegration, AutoRotation, ExpirationDate, KeyVaultSecretURI = keyVaultSecretId, ProvisioningState = certProvisioningState, location, resourceGroup, subscriptionId\n| sort by KeyVaultIntegration asc, CertificateName asc",
+                                                                        "size":  2,
+                                                                        "title":  "Application Gateway SSL Certificates \u0026 Auto-Rotation Status (Live ARG)",
+                                                                        "noDataMessage":  "No Application Gateways found in selected subscriptions.",
+                                                                        "showExportToExcel":  true,
+                                                                        "queryType":  1,
+                                                                        "resourceType":  "microsoft.resourcegraph/resources",
+                                                                        "crossComponentResources":  [
+                                                                                                        "{Subscriptions}"
+                                                                                                    ],
+                                                                        "visualization":  "table",
+                                                                        "gridSettings":  {
+                                                                                             "filter":  true,
+                                                                                             "hierarchySettings":  {
+                                                                                                                       "treeType":  1,
+                                                                                                                       "groupBy":  [
+                                                                                                                                       "subscriptionId"
+                                                                                                                                   ],
+                                                                                                                       "expandTopLevel":  true,
+                                                                                                                       "finalBy":  "ApplicationGateway"
+                                                                                                                   },
+                                                                                             "formatters":  [
+                                                                                                                {
+                                                                                                                    "columnMatch":  "ApplicationGateway",
+                                                                                                                    "formatter":  13,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "linkTarget":  "Resource",
+                                                                                                                                          "showIcon":  true
+                                                                                                                                      }
+                                                                                                                },
+                                                                                                                {
+                                                                                                                    "columnMatch":  "KeyVaultIntegration",
+                                                                                                                    "formatter":  18,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "thresholdsOptions":  "icons",
+                                                                                                                                          "thresholdsGrid":  [
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "==",
+                                                                                                                                                                     "thresholdValue":  "Integrated with Key Vault",
+                                                                                                                                                                     "representation":  "success",
+                                                                                                                                                                     "text":  "{0}{1}"
+                                                                                                                                                                 },
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "Default",
+                                                                                                                                                                     "thresholdValue":  null,
+                                                                                                                                                                     "representation":  "2",
+                                                                                                                                                                     "text":  "{0}{1}"
+                                                                                                                                                                 }
+                                                                                                                                                             ]
+                                                                                                                                      }
+                                                                                                                }
+                                                                                                            ]
+                                                                                         }
+                                                                    },
+                                                        "name":  "query - Application Gateways Grid"
+                                                    },
+                                                    {
+                                                        "type":  1,
+                                                        "content":  {
+                                                                        "json":  "#### How to Populate Expiration Dates for Directly Uploaded Certificates\nAzure Application Gateway stores directly uploaded certificates as raw Base64 (publicCertData) without exposing an expirationDate property in Azure Resource Manager (ARM).\n\nTo display their **exact expiration date, days remaining, and expiry status**:\n\n* **Option 1: Tag Application Gateways (Shows Expiration Directly in Table Above via ARG)**\n  Run the script with the -UpdateGatewayTags switch. It decodes the certificates and writes the expiration date directly as tags on your Application Gateways, so Azure Resource Graph displays it above natively without needing Log Analytics:\n  `powershell\n  .\\scripts\\Sync-AppGatewayCertificatesToLogAnalytics.ps1 -UpdateGatewayTags\n  `\n\n* **Option 2: Log Analytics Ingestion (Decoded Deep Analytics View)**\n  Run the script to auto-discover your workspace or specify your workspace credentials:\n  `powershell\n  .\\scripts\\Sync-AppGatewayCertificatesToLogAnalytics.ps1 -AutoDiscoverWorkspace\n  `\n  Once ingested, select your **Log Analytics Workspace** in the top parameter dropdown to view the Decoded Table.",
+                                                                        "style":  "info"
+                                                                    },
+                                                        "name":  "text - App Gateway Sync Guidance"
+                                                    }
+                                                ]
+                                  },
+                      "conditionalVisibility":  {
+                                                    "parameterName":  "selectedTab",
+                                                    "comparison":  "isEqualTo",
+                                                    "value":  "appgateway"
+                                                },
+                      "name":  "group - Application Gateways Tab"
+                  },
+                  {
+                      "type":  12,
+                      "content":  {
+                                      "version":  "NotebookGroup/1.0",
+                                      "groupType":  "editable",
+                                      "items":  [
+                                                    {
+                                                        "type":  1,
+                                                        "content":  {
+                                                                        "json":  "### API Management Custom Hostnames \u0026 Certificates (`microsoft.apimanagement/service`)\r\nAudits API Management custom domain bindings (Gateway proxy, Developer Portal, Management Endpoint), tracking expiration and Key Vault links."
+                                                                    },
+                                                        "name":  "text - APIM Intro"
+                                                    },
+                                                    {
+                                                        "type":  3,
+                                                        "content":  {
+                                                                        "version":  "KqlItem/1.0",
+                                                                        "query":  "resources\r\n| where type =~ \u0027microsoft.apimanagement/service\u0027\r\n| mv-expand hostConfig = properties.hostnameConfigurations\r\n| extend hostName = tostring(hostConfig.hostName)\r\n| extend hostType = tostring(hostConfig.type)\r\n| extend certExpiry = todatetime(hostConfig.certificate.expirationDate)\r\n| extend certSubject = tostring(hostConfig.certificate.subject)\r\n| extend certThumbprint = tostring(hostConfig.certificate.thumbprint)\r\n| extend keyVaultId = tostring(hostConfig.keyVaultId)\r\n| extend certSource = case(\r\n    isnotempty(keyVaultId), \u0027Key Vault\u0027,\r\n    isnotempty(certSubject), \u0027Custom Certificate\u0027,\r\n    \u0027Default / Managed\u0027\r\n)\r\n| extend DaysRemaining = datetime_diff(\u0027day\u0027, certExpiry, now())\r\n| extend ExpiryStatus = case(\r\n    isnotempty(keyVaultId), \u0027Managed via Key Vault\u0027,\r\n    isnull(certExpiry), \u0027Managed / Default\u0027,\r\n    DaysRemaining \u003c 0, \u0027Expired\u0027,\r\n    DaysRemaining \u003c= 30, \u0027Critical (\u003c 30 Days)\u0027,\r\n    DaysRemaining \u003c= 60, \u0027Warning (31 - 60 Days)\u0027,\r\n    DaysRemaining \u003c= 90, \u0027Attention (61 - 90 Days)\u0027,\r\n    \u0027Healthy (\u003e 90 Days)\u0027\r\n)\r\n| extend ExpiryFilterKey = case(\r\n    isnotempty(keyVaultId), \u0027KeyVault\u0027,\r\n    isnull(certExpiry), \u0027Managed\u0027,\r\n    DaysRemaining \u003c 0, \u0027Expired\u0027,\r\n    DaysRemaining \u003c= 30, \u0027Critical\u0027,\r\n    DaysRemaining \u003c= 60, \u0027Warning\u0027,\r\n    DaysRemaining \u003c= 90, \u0027Attention\u0027,\r\n    \u0027Healthy\u0027\r\n)\r\n| where \u0027{ExpiryThreshold}\u0027 == \u0027all\u0027 or ExpiryFilterKey == \u0027{ExpiryThreshold}\u0027\r\n| project APIMInstance = id, HostName = hostName, EndpointType = hostType, CertificateSource = certSource, ExpirationDate = certExpiry, DaysRemaining, ExpiryStatus, Subject = certSubject, Thumbprint = certThumbprint, KeyVaultSecretURI = keyVaultId, resourceGroup, subscriptionId\r\n| sort by DaysRemaining asc",
+                                                                        "size":  2,
+                                                                        "title":  "API Management Custom Hostnames \u0026 Certificate Expiration",
+                                                                        "noDataMessage":  "No API Management instances or custom hostnames found.",
+                                                                        "showExportToExcel":  true,
+                                                                        "queryType":  1,
+                                                                        "resourceType":  "microsoft.resourcegraph/resources",
+                                                                        "crossComponentResources":  [
+                                                                                                        "{Subscriptions}"
+                                                                                                    ],
+                                                                        "visualization":  "table",
+                                                                        "gridSettings":  {
+                                                                                             "filter":  true,
+                                                                                             "hierarchySettings":  {
+                                                                                                                       "treeType":  1,
+                                                                                                                       "groupBy":  [
+                                                                                                                                       "subscriptionId"
+                                                                                                                                   ],
+                                                                                                                       "expandTopLevel":  true,
+                                                                                                                       "finalBy":  "APIMInstance"
+                                                                                                                   },
+                                                                                             "formatters":  [
+                                                                                                                {
+                                                                                                                    "columnMatch":  "APIMInstance",
+                                                                                                                    "formatter":  13,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "linkTarget":  "Resource",
+                                                                                                                                          "showIcon":  true
+                                                                                                                                      }
+                                                                                                                },
+                                                                                                                {
+                                                                                                                    "columnMatch":  "DaysRemaining",
+                                                                                                                    "formatter":  18,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "thresholdsOptions":  "icons",
+                                                                                                                                          "thresholdsGrid":  [
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "\u003c=",
+                                                                                                                                                                     "thresholdValue":  "0",
+                                                                                                                                                                     "representation":  "3",
+                                                                                                                                                                     "text":  "{0} Days (Expired)"
+                                                                                                                                                                 },
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "\u003c=",
+                                                                                                                                                                     "thresholdValue":  "30",
+                                                                                                                                                                     "representation":  "2",
+                                                                                                                                                                     "text":  "{0} Days (Critical)"
+                                                                                                                                                                 },
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "Default",
+                                                                                                                                                                     "thresholdValue":  null,
+                                                                                                                                                                     "representation":  "success",
+                                                                                                                                                                     "text":  "{0} Days"
+                                                                                                                                                                 }
+                                                                                                                                                             ]
+                                                                                                                                      }
+                                                                                                                },
+                                                                                                                {
+                                                                                                                    "columnMatch":  "ExpirationDate",
+                                                                                                                    "formatter":  6
+                                                                                                                }
+                                                                                                            ]
+                                                                                         }
+                                                                    },
+                                                        "name":  "query - APIM Table"
+                                                    }
+                                                ]
+                                  },
+                      "conditionalVisibility":  {
+                                                    "parameterName":  "selectedTab",
+                                                    "comparison":  "isEqualTo",
+                                                    "value":  "apim"
+                                                },
+                      "name":  "group - APIM Tab"
+                  },
+                  {
+                      "type":  12,
+                      "content":  {
+                                      "version":  "NotebookGroup/1.0",
+                                      "groupType":  "editable",
+                                      "items":  [
+                                                    {
+                                                        "type":  1,
+                                                        "content":  {
+                                                                        "json":  "### Azure Front Door \u0026 CDN Custom Domains (`microsoft.cdn/profiles/customdomains`)\r\nAudits edge custom domains, TLS minimum protocol versions, and managed vs customer certificate types."
+                                                                    },
+                                                        "name":  "text - Front Door Intro"
+                                                    },
+                                                    {
+                                                        "type":  3,
+                                                        "content":  {
+                                                                        "version":  "KqlItem/1.0",
+                                                                        "query":  "resources\r\n| where type =~ \u0027microsoft.cdn/profiles/customdomains\u0027\r\n| extend hostName = tostring(properties.hostName)\r\n| extend certType = tostring(properties.tlsSettings.certificateType)\r\n| extend minTlsVersion = tostring(properties.tlsSettings.minimumTlsVersion)\r\n| extend validationState = tostring(properties.domainValidationState)\r\n| extend provisioningState = tostring(properties.provisioningState)\r\n| project CustomDomain = id, HostName = hostName, CertificateType = certType, MinimumTlsVersion = minTlsVersion, ValidationState = validationState, ProvisioningState = provisioningState, resourceGroup, subscriptionId\r\n| sort by HostName asc",
+                                                                        "size":  2,
+                                                                        "title":  "Front Door \u0026 CDN Custom Domains",
+                                                                        "noDataMessage":  "No Front Door or CDN custom domains found in selected subscriptions.",
+                                                                        "showExportToExcel":  true,
+                                                                        "queryType":  1,
+                                                                        "resourceType":  "microsoft.resourcegraph/resources",
+                                                                        "crossComponentResources":  [
+                                                                                                        "{Subscriptions}"
+                                                                                                    ],
+                                                                        "visualization":  "table",
+                                                                        "gridSettings":  {
+                                                                                             "filter":  true,
+                                                                                             "hierarchySettings":  {
+                                                                                                                       "treeType":  1,
+                                                                                                                       "groupBy":  [
+                                                                                                                                       "subscriptionId"
+                                                                                                                                   ],
+                                                                                                                       "expandTopLevel":  true,
+                                                                                                                       "finalBy":  "CustomDomain"
+                                                                                                                   },
+                                                                                             "formatters":  [
+                                                                                                                {
+                                                                                                                    "columnMatch":  "CustomDomain",
+                                                                                                                    "formatter":  13,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "linkTarget":  "Resource",
+                                                                                                                                          "showIcon":  true
+                                                                                                                                      }
+                                                                                                                }
+                                                                                                            ]
+                                                                                         }
+                                                                    },
+                                                        "name":  "query - Front Door Grid"
+                                                    }
+                                                ]
+                                  },
+                      "conditionalVisibility":  {
+                                                    "parameterName":  "selectedTab",
+                                                    "comparison":  "isEqualTo",
+                                                    "value":  "frontdoor"
+                                                },
+                      "name":  "group - Front Door Tab"
+                  },
+                  {
+                      "type":  12,
+                      "content":  {
+                                      "version":  "NotebookGroup/1.0",
+                                      "groupType":  "editable",
+                                      "items":  [
+                                                    {
+                                                        "type":  1,
+                                                        "content":  {
+                                                                        "json":  "### Key Vaults \u0026 Centralized Certificate Lifecycle Monitoring\r\nReview Key Vault security posture (Soft Delete, Purge Protection) across your tenant, and configure Azure Monitor Diagnostic Settings to ingest real-time certificate near-expiry alerts into Log Analytics."
+                                                                    },
+                                                        "name":  "text - Key Vault Intro"
+                                                    },
+                                                    {
+                                                        "type":  3,
+                                                        "content":  {
+                                                                        "version":  "KqlItem/1.0",
+                                                                        "query":  "resources\r\n| where type =~ \u0027microsoft.keyvault/vaults\u0027\r\n| extend enableSoftDelete = tostring(properties.enableSoftDelete)\r\n| extend enablePurgeProtection = tostring(properties.enablePurgeProtection)\r\n| extend softDeleteRetentionInDays = toint(properties.softDeleteRetentionInDays)\r\n| extend publicNetworkAccess = tostring(properties.publicNetworkAccess)\r\n| extend skuName = tostring(sku.name)\r\n| project KeyVault = id, Sku = skuName, SoftDelete = enableSoftDelete, PurgeProtection = enablePurgeProtection, RetentionDays = softDeleteRetentionInDays, PublicNetwork = publicNetworkAccess, location, resourceGroup, subscriptionId\r\n| sort by KeyVault asc",
+                                                                        "size":  2,
+                                                                        "title":  "Key Vaults Inventory \u0026 Lifecycle Protection Posture",
+                                                                        "noDataMessage":  "No Key Vaults found in selected subscriptions.",
+                                                                        "showExportToExcel":  true,
+                                                                        "queryType":  1,
+                                                                        "resourceType":  "microsoft.resourcegraph/resources",
+                                                                        "crossComponentResources":  [
+                                                                                                        "{Subscriptions}"
+                                                                                                    ],
+                                                                        "visualization":  "table",
+                                                                        "gridSettings":  {
+                                                                                             "filter":  true,
+                                                                                             "hierarchySettings":  {
+                                                                                                                       "treeType":  1,
+                                                                                                                       "groupBy":  [
+                                                                                                                                       "subscriptionId"
+                                                                                                                                   ],
+                                                                                                                       "expandTopLevel":  true,
+                                                                                                                       "finalBy":  "KeyVault"
+                                                                                                                   },
+                                                                                             "formatters":  [
+                                                                                                                {
+                                                                                                                    "columnMatch":  "KeyVault",
+                                                                                                                    "formatter":  13,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "linkTarget":  "Resource",
+                                                                                                                                          "showIcon":  true
+                                                                                                                                      }
+                                                                                                                },
+                                                                                                                {
+                                                                                                                    "columnMatch":  "PurgeProtection",
+                                                                                                                    "formatter":  18,
+                                                                                                                    "formatOptions":  {
+                                                                                                                                          "thresholdsOptions":  "icons",
+                                                                                                                                          "thresholdsGrid":  [
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "==",
+                                                                                                                                                                     "thresholdValue":  "true",
+                                                                                                                                                                     "representation":  "success",
+                                                                                                                                                                     "text":  "{0}{1}"
+                                                                                                                                                                 },
+                                                                                                                                                                 {
+                                                                                                                                                                     "operator":  "Default",
+                                                                                                                                                                     "thresholdValue":  null,
+                                                                                                                                                                     "representation":  "2",
+                                                                                                                                                                     "text":  "{0}{1}"
+                                                                                                                                                                 }
+                                                                                                                                                             ]
+                                                                                                                                      }
+                                                                                                                }
+                                                                                                            ]
+                                                                                         }
+                                                                    },
+                                                        "name":  "query - Key Vaults Table"
+                                                    },
+                                                    {
+                                                        "type":  1,
+                                                        "content":  {
+                                                                        "json":  "#### Enabling Real-Time Expiry Alerts for Azure Key Vault\r\nBecause Key Vault stores certificate private keys securely within the data plane, Azure Resource Graph inspects the vault metadata. To alert on individual certificate expirations inside Key Vault:\r\n\r\n1. **Diagnostic Settings**: Route Key Vault `AuditEvent` logs to an Azure Log Analytics Workspace.\r\n2. **Runbook / Azure Policy**: Assign Azure Policy *\u0027Certificates should have the specified maximum validity period\u0027* or assign an Event Grid trigger when certificates near expiry (`Microsoft.KeyVault.CertificateNearExpiry`).\r\n3. **Log Analytics Query**:\r\n```kusto\r\nAzureDiagnostics\r\n| where Category == \"AuditEvent\"\r\n| where OperationName in (\"CertificateNearExpiry\", \"CertificateExpired\")\r\n| project TimeGenerated, Resource, OperationName, ResultDescription, CallerIpAddress\r\n```",
+                                                                        "style":  "upsell"
+                                                                    },
+                                                        "name":  "text - Key Vault Alert Guidance"
+                                                    }
+                                                ]
+                                  },
+                      "conditionalVisibility":  {
+                                                    "parameterName":  "selectedTab",
+                                                    "comparison":  "isEqualTo",
+                                                    "value":  "keyvault"
+                                                },
+                      "name":  "group - Key Vault Tab"
                   }
-                ],
-                "formatters": [
-                  {
-                    "columnMatch": "Certificate",
-                    "formatter": 13,
-                    "formatOptions": {
-                      "linkTarget": "Resource",
-                      "showIcon": true
-                    }
-                  },
-                  {
-                    "columnMatch": "DaysRemaining",
-                    "formatter": 18,
-                    "formatOptions": {
-                      "thresholdsOptions": "icons",
-                      "thresholdsGrid": [
-                        {
-                          "operator": "<=",
-                          "thresholdValue": "0",
-                          "representation": "3",
-                          "text": "{0} Days (Expired)"
-                        },
-                        {
-                          "operator": "<=",
-                          "thresholdValue": "30",
-                          "representation": "2",
-                          "text": "{0} Days (Critical)"
-                        },
-                        {
-                          "operator": "<=",
-                          "thresholdValue": "90",
-                          "representation": "4",
-                          "text": "{0} Days"
-                        },
-                        {
-                          "operator": "Default",
-                          "thresholdValue": null,
-                          "representation": "success",
-                          "text": "{0} Days"
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "columnMatch": "ExpirationDate",
-                    "formatter": 6
-                  },
-                  {
-                    "columnMatch": "KeyVaultId",
-                    "formatter": 13,
-                    "formatOptions": {
-                      "linkTarget": "Resource",
-                      "showIcon": true
-                    }
-                  }
-                ]
-              }
-            },
-            "name": "query - Urgent Certificates Table"
-          }
-        ]
-      },
-      "conditionalVisibility": {
-        "parameterName": "selectedTab",
-        "comparison": "isEqualTo",
-        "value": "overview"
-      },
-      "name": "group - Overview Tab"
-    },
-    {
-      "type": 12,
-      "content": {
-        "version": "NotebookGroup/1.0",
-        "groupType": "editable",
-        "items": [
-          {
-            "type": 1,
-            "content": {
-              "json": "### App Service Certificates Inventory (`microsoft.web/certificates`)\r\nAll custom and managed SSL certificates uploaded to App Services across your subscriptions. Use the **Expiry Filter** above to isolate critical or expired certificates."
-            },
-            "name": "text - App Service Intro"
-          },
-          {
-            "type": 3,
-            "content": {
-              "version": "KqlItem/1.0",
-              "query": "resources\r\n| where type =~ 'microsoft.web/certificates'\r\n| extend ExpirationDate = todatetime(properties.expirationDate)\r\n| extend IssueDate = todatetime(properties.issueDate)\r\n| extend DaysRemaining = datetime_diff('day', ExpirationDate, now())\r\n| extend ExpiryStatus = case(\r\n    isnull(ExpirationDate), 'Unknown',\r\n    DaysRemaining < 0, 'Expired',\r\n    DaysRemaining <= 30, 'Critical (< 30 Days)',\r\n    DaysRemaining <= 60, 'Warning (31 - 60 Days)',\r\n    DaysRemaining <= 90, 'Attention (61 - 90 Days)',\r\n    'Healthy (> 90 Days)'\r\n)\r\n| extend ExpiryFilterKey = case(\r\n    isnull(ExpirationDate), 'Unknown',\r\n    DaysRemaining < 0, 'Expired',\r\n    DaysRemaining <= 30, 'Critical',\r\n    DaysRemaining <= 60, 'Warning',\r\n    DaysRemaining <= 90, 'Attention',\r\n    'Healthy'\r\n)\r\n| where '{ExpiryThreshold}' == 'all' or ExpiryFilterKey == '{ExpiryThreshold}'\r\n| extend Subject = tostring(properties.subjectName)\r\n| extend Issuer = tostring(properties.issuer)\r\n| extend Thumbprint = tostring(properties.thumbprint)\r\n| extend KeyVaultId = tostring(properties.keyVaultId)\r\n| extend IsValid = tostring(properties.valid)\r\n| project Certificate = id, Subject, Issuer, ExpirationDate, DaysRemaining, ExpiryStatus, IsValid, Thumbprint, KeyVaultId, resourceGroup, subscriptionId\r\n| sort by DaysRemaining asc",
-              "size": 2,
-              "title": "App Service Certificates Table",
-              "noDataMessage": "No certificates match the selected subscription and threshold filters.",
-              "showExportToExcel": true,
-              "queryType": 1,
-              "resourceType": "microsoft.resourcegraph/resources",
-              "crossComponentResources": [
-                "{Subscriptions}"
-              ],
-              "visualization": "table",
-              "gridSettings": {
-                "filter": true,
-                "hierarchySettings": {
-                  "treeType": 1,
-                  "groupBy": [
-                    "subscriptionId"
-                  ],
-                  "expandTopLevel": true,
-                  "finalBy": "Certificate"
-                },
-                "sortBy": [
-                  {
-                    "itemKey": "DaysRemaining",
-                    "sortOrder": 1
-                  }
-                ],
-                "formatters": [
-                  {
-                    "columnMatch": "$gen_group",
-                    "formatter": 13,
-                    "formatOptions": {
-                      "showIcon": true
-                    }
-                  },
-                  {
-                    "columnMatch": "Certificate",
-                    "formatter": 13,
-                    "formatOptions": {
-                      "linkTarget": "Resource",
-                      "showIcon": true
-                    }
-                  },
-                  {
-                    "columnMatch": "DaysRemaining",
-                    "formatter": 18,
-                    "formatOptions": {
-                      "thresholdsOptions": "icons",
-                      "thresholdsGrid": [
-                        {
-                          "operator": "<=",
-                          "thresholdValue": "0",
-                          "representation": "3",
-                          "text": "{0} Days (Expired)"
-                        },
-                        {
-                          "operator": "<=",
-                          "thresholdValue": "30",
-                          "representation": "2",
-                          "text": "{0} Days (Critical)"
-                        },
-                        {
-                          "operator": "<=",
-                          "thresholdValue": "90",
-                          "representation": "4",
-                          "text": "{0} Days"
-                        },
-                        {
-                          "operator": "Default",
-                          "thresholdValue": null,
-                          "representation": "success",
-                          "text": "{0} Days"
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "columnMatch": "ExpirationDate",
-                    "formatter": 6
-                  },
-                  {
-                    "columnMatch": "KeyVaultId",
-                    "formatter": 13,
-                    "formatOptions": {
-                      "linkTarget": "Resource",
-                      "showIcon": true
-                    }
-                  }
-                ]
-              }
-            },
-            "name": "query - App Service Certificates Grid"
-          }
-        ]
-      },
-      "conditionalVisibility": {
-        "parameterName": "selectedTab",
-        "comparison": "isEqualTo",
-        "value": "appservice"
-      },
-      "name": "group - App Service Tab"
-    },
-    {
-      "type": 12,
-      "content": {
-        "version": "NotebookGroup/1.0",
-        "groupType": "editable",
-        "items": [
-          {
-            "type": 1,
-            "content": {
-              "json": "### App Service Certificate Orders (`microsoft.web/certificateorders`)\r\nTracks domain certificate orders created via the Azure Portal, including auto-renew status, issuance state, and renewal deadlines."
-            },
-            "name": "text - Certificate Orders Intro"
-          },
-          {
-            "type": 3,
-            "content": {
-              "version": "KqlItem/1.0",
-              "query": "resources\r\n| where type =~ 'microsoft.web/certificateorders'\r\n| extend ExpirationTime = todatetime(properties.expirationTime)\r\n| extend DaysRemaining = datetime_diff('day', ExpirationTime, now())\r\n| extend ExpiryStatus = case(\r\n    isnull(ExpirationTime), 'Unknown',\r\n    DaysRemaining < 0, 'Expired',\r\n    DaysRemaining <= 30, 'Critical (< 30 Days)',\r\n    DaysRemaining <= 60, 'Warning (31 - 60 Days)',\r\n    DaysRemaining <= 90, 'Attention (61 - 90 Days)',\r\n    'Healthy (> 90 Days)'\r\n)\r\n| extend ExpiryFilterKey = case(\r\n    isnull(ExpirationTime), 'Unknown',\r\n    DaysRemaining < 0, 'Expired',\r\n    DaysRemaining <= 30, 'Critical',\r\n    DaysRemaining <= 60, 'Warning',\r\n    DaysRemaining <= 90, 'Attention',\r\n    'Healthy'\r\n)\r\n| where '{ExpiryThreshold}' == 'all' or ExpiryFilterKey == '{ExpiryThreshold}'\r\n| extend Domain = tostring(properties.distinguishedName)\r\n| extend ProductType = tostring(properties.productType)\r\n| extend AutoRenew = tostring(properties.autoRenew)\r\n| extend OrderStatus = tostring(properties.status)\r\n| extend ProvisioningState = tostring(properties.provisioningState)\r\n| extend KeyVaultId = tostring(properties.keyVaultId)\r\n| project Order = id, Domain, ProductType, AutoRenew, OrderStatus, ProvisioningState, ExpirationTime, DaysRemaining, ExpiryStatus, KeyVaultId, resourceGroup, subscriptionId\r\n| sort by DaysRemaining asc",
-              "size": 2,
-              "title": "App Service Certificate Orders",
-              "noDataMessage": "No App Service Certificate Orders found in selected subscriptions.",
-              "showExportToExcel": true,
-              "queryType": 1,
-              "resourceType": "microsoft.resourcegraph/resources",
-              "crossComponentResources": [
-                "{Subscriptions}"
-              ],
-              "visualization": "table",
-              "gridSettings": {
-                "filter": true,
-                "hierarchySettings": {
-                  "treeType": 1,
-                  "groupBy": [
-                    "subscriptionId"
-                  ],
-                  "expandTopLevel": true,
-                  "finalBy": "Order"
-                },
-                "sortBy": [
-                  {
-                    "itemKey": "DaysRemaining",
-                    "sortOrder": 1
-                  }
-                ],
-                "formatters": [
-                  {
-                    "columnMatch": "Order",
-                    "formatter": 13,
-                    "formatOptions": {
-                      "linkTarget": "Resource",
-                      "showIcon": true
-                    }
-                  },
-                  {
-                    "columnMatch": "DaysRemaining",
-                    "formatter": 18,
-                    "formatOptions": {
-                      "thresholdsOptions": "icons",
-                      "thresholdsGrid": [
-                        {
-                          "operator": "<=",
-                          "thresholdValue": "0",
-                          "representation": "3",
-                          "text": "{0} Days (Expired)"
-                        },
-                        {
-                          "operator": "<=",
-                          "thresholdValue": "30",
-                          "representation": "2",
-                          "text": "{0} Days (Critical)"
-                        },
-                        {
-                          "operator": "Default",
-                          "thresholdValue": null,
-                          "representation": "success",
-                          "text": "{0} Days"
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "columnMatch": "ExpirationTime",
-                    "formatter": 6
-                  },
-                  {
-                    "columnMatch": "KeyVaultId",
-                    "formatter": 13,
-                    "formatOptions": {
-                      "linkTarget": "Resource",
-                      "showIcon": true
-                    }
-                  }
-                ]
-              }
-            },
-            "name": "query - Certificate Orders Grid"
-          }
-        ]
-      },
-      "conditionalVisibility": {
-        "parameterName": "selectedTab",
-        "comparison": "isEqualTo",
-        "value": "certorders"
-      },
-      "name": "group - Certificate Orders Tab"
-    },
-    {
-      "type": 12,
-      "content": {
-        "version": "NotebookGroup/1.0",
-        "groupType": "editable",
-        "items": [
-          {
-            "type": 1,
-            "content": {
-              "json": "### Web Apps & Custom Hostname SSL Bindings (`microsoft.web/sites`)\r\nCorrelates Web Apps and Function Apps with their custom domain SSL host bindings, bound certificate thumbprints, and live expiration dates."
-            },
-            "name": "text - SSL Bindings Intro"
-          },
-          {
-            "type": 3,
-            "content": {
-              "version": "KqlItem/1.0",
-              "query": "resources\r\n| where type =~ 'microsoft.web/sites'\r\n| mv-expand ssl = properties.hostNameSslStates\r\n| extend sslState = tostring(ssl.sslState), hostName = tostring(ssl.name), thumbprint = tostring(ssl.thumbprint)\r\n| where sslState != 'Disabled' and isnotempty(thumbprint)\r\n| project siteId = id, siteName = name, hostName, sslState, thumbprint, kind, resourceGroup, subscriptionId\r\n| join kind=leftouter (\r\n    resources\r\n    | where type =~ 'microsoft.web/certificates'\r\n    | extend ExpirationDate = todatetime(properties.expirationDate)\r\n    | extend DaysRemaining = datetime_diff('day', ExpirationDate, now())\r\n    | extend ExpiryStatus = case(\r\n        isnull(ExpirationDate), 'Unknown',\r\n        DaysRemaining < 0, 'Expired',\r\n        DaysRemaining <= 30, 'Critical (< 30 Days)',\r\n        DaysRemaining <= 60, 'Warning (31 - 60 Days)',\r\n        DaysRemaining <= 90, 'Attention (61 - 90 Days)',\r\n        'Healthy (> 90 Days)'\r\n    )\r\n    | extend ExpiryFilterKey = case(\r\n        isnull(ExpirationDate), 'Unknown',\r\n        DaysRemaining < 0, 'Expired',\r\n        DaysRemaining <= 30, 'Critical',\r\n        DaysRemaining <= 60, 'Warning',\r\n        DaysRemaining <= 90, 'Attention',\r\n        'Healthy'\r\n    )\r\n    | extend Subject = tostring(properties.subjectName)\r\n    | extend Issuer = tostring(properties.issuer)\r\n    | extend thumbprint = tostring(properties.thumbprint)\r\n    | project certId = id, certName = name, Subject, Issuer, ExpirationDate, DaysRemaining, ExpiryStatus, ExpiryFilterKey, thumbprint\r\n) on thumbprint\r\n| where '{ExpiryThreshold}' == 'all' or isempty(ExpiryFilterKey) or ExpiryFilterKey == '{ExpiryThreshold}'\r\n| project AppService = siteId, HostName = hostName, SSLState = sslState, Certificate = certId, Subject, Issuer, ExpirationDate, DaysRemaining, ExpiryStatus, Thumbprint = thumbprint, Kind = kind, resourceGroup, subscriptionId\r\n| sort by DaysRemaining asc",
-              "size": 2,
-              "title": "Web Apps SSL Hostname Bindings & Expiry",
-              "noDataMessage": "No active SSL host bindings found matching criteria.",
-              "showExportToExcel": true,
-              "queryType": 1,
-              "resourceType": "microsoft.resourcegraph/resources",
-              "crossComponentResources": [
-                "{Subscriptions}"
-              ],
-              "visualization": "table",
-              "gridSettings": {
-                "filter": true,
-                "hierarchySettings": {
-                  "treeType": 1,
-                  "groupBy": [
-                    "subscriptionId"
-                  ],
-                  "expandTopLevel": true,
-                  "finalBy": "AppService"
-                },
-                "sortBy": [
-                  {
-                    "itemKey": "DaysRemaining",
-                    "sortOrder": 1
-                  }
-                ],
-                "formatters": [
-                  {
-                    "columnMatch": "AppService",
-                    "formatter": 13,
-                    "formatOptions": {
-                      "linkTarget": "Resource",
-                      "showIcon": true
-                    }
-                  },
-                  {
-                    "columnMatch": "Certificate",
-                    "formatter": 13,
-                    "formatOptions": {
-                      "linkTarget": "Resource",
-                      "showIcon": true
-                    }
-                  },
-                  {
-                    "columnMatch": "DaysRemaining",
-                    "formatter": 18,
-                    "formatOptions": {
-                      "thresholdsOptions": "icons",
-                      "thresholdsGrid": [
-                        {
-                          "operator": "<=",
-                          "thresholdValue": "0",
-                          "representation": "3",
-                          "text": "{0} Days (Expired)"
-                        },
-                        {
-                          "operator": "<=",
-                          "thresholdValue": "30",
-                          "representation": "2",
-                          "text": "{0} Days (Critical)"
-                        },
-                        {
-                          "operator": "Default",
-                          "thresholdValue": null,
-                          "representation": "success",
-                          "text": "{0} Days"
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "columnMatch": "ExpirationDate",
-                    "formatter": 6
-                  }
-                ]
-              }
-            },
-            "name": "query - SSL Bindings Table"
-          }
-        ]
-      },
-      "conditionalVisibility": {
-        "parameterName": "selectedTab",
-        "comparison": "isEqualTo",
-        "value": "sslbindings"
-      },
-      "name": "group - SSL Bindings Tab"
-    },
-    {
-      "type": 12,
-      "content": {
-        "version": "NotebookGroup/1.0",
-        "groupType": "editable",
-        "items": [
-          {
-            "type": 1,
-            "content": {
-              "json": "### Application Gateways SSL Certificates (`microsoft.network/applicationgateways`)\r\nIdentifies SSL listeners and whether certificates are integrated with **Azure Key Vault for automated rotation** vs **manual file uploads**."
-            },
-            "name": "text - App Gateway Intro"
-          },
-          {
-            "type": 3,
-            "content": {
-              "version": "KqlItem/1.0",
-              "query": "AppGatewayCertificates_CL\r\n| extend DaysRemaining = toint(DaysRemaining_d)\r\n| extend ExpirationDate = todatetime(NotAfter_s)\r\n| extend ExpiryGroup = case(\r\n    DaysRemaining < 0, 'Expired',\r\n    DaysRemaining <= 30, 'Critical',\r\n    DaysRemaining <= 60, 'Warning',\r\n    DaysRemaining <= 90, 'Attention',\r\n    'Healthy'\r\n)\r\n| where '{ExpiryThreshold}' == 'all' or ExpiryGroup == '{ExpiryThreshold}'\r\n| project \r\n    AppGateway = AppGatewayName_s,\r\n    Certificate = CertificateName_s,\r\n    CertificateSource = CertificateSource_s,\r\n    Subject = Subject_s,\r\n    ExpirationDate,\r\n    DaysRemaining,\r\n    ExpiryStatus = ExpiryStatus_s,\r\n    Thumbprint = Thumbprint_s,\r\n    ResourceGroup = ResourceGroup_s,\r\n    Subscription = SubscriptionId_s\r\n| sort by DaysRemaining asc",
-              "size": 2,
-              "title": "Decoded Direct Upload Certificates & Expiry (via Log Analytics Sync)",
-              "noDataMessage": "No decoded certificate records found in Log Analytics yet. Run scripts/Sync-AppGatewayCertificatesToLogAnalytics.ps1 to populate this table.",
-              "showExportToExcel": true,
-              "queryType": 0,
-              "resourceType": "microsoft.operationalinsights/workspaces",
-              "crossComponentResources": [
-                "{Workspace}"
-              ],
-              "visualization": "table",
-              "gridSettings": {
-                "filter": true,
-                "sortBy": [
-                  {
-                    "itemKey": "DaysRemaining",
-                    "sortOrder": 1
-                  }
-                ],
-                "formatters": [
-                  {
-                    "columnMatch": "DaysRemaining",
-                    "formatter": 18,
-                    "formatOptions": {
-                      "thresholdsOptions": "icons",
-                      "thresholdsGrid": [
-                        {
-                          "operator": "<=",
-                          "thresholdValue": "0",
-                          "representation": "3",
-                          "text": "{0} Days (Expired)"
-                        },
-                        {
-                          "operator": "<=",
-                          "thresholdValue": "30",
-                          "representation": "2",
-                          "text": "{0} Days (Critical)"
-                        },
-                        {
-                          "operator": "<=",
-                          "thresholdValue": "90",
-                          "representation": "4",
-                          "text": "{0} Days"
-                        },
-                        {
-                          "operator": "Default",
-                          "thresholdValue": null,
-                          "representation": "success",
-                          "text": "{0} Days"
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "columnMatch": "ExpirationDate",
-                    "formatter": 6
-                  }
-                ]
-              }
-            },
-            "name": "query - App Gateway Decoded Log Analytics Table"
-          },
-          {
-            "type": 3,
-            "content": {
-              "version": "KqlItem/1.0",
-              "query": "resources\r\n| where type =~ 'microsoft.network/applicationgateways'\r\n| mv-expand cert = properties.sslCertificates\r\n| extend certName = tostring(cert.name)\r\n| extend keyVaultSecretId = tostring(cert.properties.keyVaultSecretId)\r\n| extend certProvisioningState = tostring(cert.properties.provisioningState)\r\n| extend KeyVaultIntegration = iff(isnotempty(keyVaultSecretId), 'Integrated with Key Vault', 'Manual Upload (Risk of Expiration)')\r\n| extend AutoRotation = iff(isnotempty(keyVaultSecretId) and keyVaultSecretId !matches regex @'/[0-9a-f]{32}$', 'Auto-Rotate (Unversioned URI)', iff(isnotempty(keyVaultSecretId), 'Pinned Version (Manual Update Req)', 'None (Embedded Cert)'))\r\n| project ApplicationGateway = id, CertificateName = certName, KeyVaultIntegration, AutoRotation, KeyVaultSecretURI = keyVaultSecretId, ProvisioningState = certProvisioningState, location, resourceGroup, subscriptionId\r\n| sort by KeyVaultIntegration asc, CertificateName asc",
-              "size": 2,
-              "title": "Application Gateway SSL Certificates & Auto-Rotation Status (Live ARG)",
-              "noDataMessage": "No Application Gateways found in selected subscriptions.",
-              "showExportToExcel": true,
-              "queryType": 1,
-              "resourceType": "microsoft.resourcegraph/resources",
-              "crossComponentResources": [
-                "{Subscriptions}"
-              ],
-              "visualization": "table",
-              "gridSettings": {
-                "filter": true,
-                "hierarchySettings": {
-                  "treeType": 1,
-                  "groupBy": [
-                    "subscriptionId"
-                  ],
-                  "expandTopLevel": true,
-                  "finalBy": "ApplicationGateway"
-                },
-                "formatters": [
-                  {
-                    "columnMatch": "ApplicationGateway",
-                    "formatter": 13,
-                    "formatOptions": {
-                      "linkTarget": "Resource",
-                      "showIcon": true
-                    }
-                  },
-                  {
-                    "columnMatch": "KeyVaultIntegration",
-                    "formatter": 18,
-                    "formatOptions": {
-                      "thresholdsOptions": "icons",
-                      "thresholdsGrid": [
-                        {
-                          "operator": "==",
-                          "thresholdValue": "Integrated with Key Vault",
-                          "representation": "success",
-                          "text": "{0}{1}"
-                        },
-                        {
-                          "operator": "Default",
-                          "thresholdValue": null,
-                          "representation": "2",
-                          "text": "{0}{1}"
-                        }
-                      ]
-                    }
-                  }
-                ]
-              }
-            },
-            "name": "query - Application Gateways Grid"
-          },
-          {
-            "type": 1,
-            "content": {
-              "json": "#### Why Directly Uploaded Certificates Require Decoding\r\nAzure Application Gateway stores directly uploaded certificates as raw Base64 (`publicCertData`) without exposing an `expirationDate` property in Azure Resource Manager (ARM).\r\n\r\nTo display their **exact expiration date, days remaining, and expiry status** above:\r\n1. Select your **Log Analytics Workspace** in the top parameter dropdown.\r\n2. Run the included PowerShell script or schedule it in Azure Automation / Logic App:\r\n```powershell\r\n.\\scripts\\Sync-AppGatewayCertificatesToLogAnalytics.ps1 -WorkspaceId '<Workspace-ID>' -WorkspaceKey '<Workspace-Key>'\r\n```\r\nThe script decodes the X.509 certificate binary, extracts the `NotAfter` date, and ingests it into `AppGatewayCertificates_CL`.",
-              "style": "info"
-            },
-            "name": "text - App Gateway Sync Guidance"
-          }
-        ]
-      },
-      "conditionalVisibility": {
-        "parameterName": "selectedTab",
-        "comparison": "isEqualTo",
-        "value": "appgateway"
-      },
-      "name": "group - Application Gateways Tab"
-    },
-    {
-      "type": 12,
-      "content": {
-        "version": "NotebookGroup/1.0",
-        "groupType": "editable",
-        "items": [
-          {
-            "type": 1,
-            "content": {
-              "json": "### API Management Custom Hostnames & Certificates (`microsoft.apimanagement/service`)\r\nAudits API Management custom domain bindings (Gateway proxy, Developer Portal, Management Endpoint), tracking expiration and Key Vault links."
-            },
-            "name": "text - APIM Intro"
-          },
-          {
-            "type": 3,
-            "content": {
-              "version": "KqlItem/1.0",
-              "query": "resources\r\n| where type =~ 'microsoft.apimanagement/service'\r\n| mv-expand hostConfig = properties.hostnameConfigurations\r\n| extend hostName = tostring(hostConfig.hostName)\r\n| extend hostType = tostring(hostConfig.type)\r\n| extend certExpiry = todatetime(hostConfig.certificate.expirationDate)\r\n| extend certSubject = tostring(hostConfig.certificate.subject)\r\n| extend certThumbprint = tostring(hostConfig.certificate.thumbprint)\r\n| extend keyVaultId = tostring(hostConfig.keyVaultId)\r\n| extend certSource = case(\r\n    isnotempty(keyVaultId), 'Key Vault',\r\n    isnotempty(certSubject), 'Custom Certificate',\r\n    'Default / Managed'\r\n)\r\n| extend DaysRemaining = datetime_diff('day', certExpiry, now())\r\n| extend ExpiryStatus = case(\r\n    isnotempty(keyVaultId), 'Managed via Key Vault',\r\n    isnull(certExpiry), 'Managed / Default',\r\n    DaysRemaining < 0, 'Expired',\r\n    DaysRemaining <= 30, 'Critical (< 30 Days)',\r\n    DaysRemaining <= 60, 'Warning (31 - 60 Days)',\r\n    DaysRemaining <= 90, 'Attention (61 - 90 Days)',\r\n    'Healthy (> 90 Days)'\r\n)\r\n| extend ExpiryFilterKey = case(\r\n    isnotempty(keyVaultId), 'KeyVault',\r\n    isnull(certExpiry), 'Managed',\r\n    DaysRemaining < 0, 'Expired',\r\n    DaysRemaining <= 30, 'Critical',\r\n    DaysRemaining <= 60, 'Warning',\r\n    DaysRemaining <= 90, 'Attention',\r\n    'Healthy'\r\n)\r\n| where '{ExpiryThreshold}' == 'all' or ExpiryFilterKey == '{ExpiryThreshold}'\r\n| project APIMInstance = id, HostName = hostName, EndpointType = hostType, CertificateSource = certSource, ExpirationDate = certExpiry, DaysRemaining, ExpiryStatus, Subject = certSubject, Thumbprint = certThumbprint, KeyVaultSecretURI = keyVaultId, resourceGroup, subscriptionId\r\n| sort by DaysRemaining asc",
-              "size": 2,
-              "title": "API Management Custom Hostnames & Certificate Expiration",
-              "noDataMessage": "No API Management instances or custom hostnames found.",
-              "showExportToExcel": true,
-              "queryType": 1,
-              "resourceType": "microsoft.resourcegraph/resources",
-              "crossComponentResources": [
-                "{Subscriptions}"
-              ],
-              "visualization": "table",
-              "gridSettings": {
-                "filter": true,
-                "hierarchySettings": {
-                  "treeType": 1,
-                  "groupBy": [
-                    "subscriptionId"
-                  ],
-                  "expandTopLevel": true,
-                  "finalBy": "APIMInstance"
-                },
-                "formatters": [
-                  {
-                    "columnMatch": "APIMInstance",
-                    "formatter": 13,
-                    "formatOptions": {
-                      "linkTarget": "Resource",
-                      "showIcon": true
-                    }
-                  },
-                  {
-                    "columnMatch": "DaysRemaining",
-                    "formatter": 18,
-                    "formatOptions": {
-                      "thresholdsOptions": "icons",
-                      "thresholdsGrid": [
-                        {
-                          "operator": "<=",
-                          "thresholdValue": "0",
-                          "representation": "3",
-                          "text": "{0} Days (Expired)"
-                        },
-                        {
-                          "operator": "<=",
-                          "thresholdValue": "30",
-                          "representation": "2",
-                          "text": "{0} Days (Critical)"
-                        },
-                        {
-                          "operator": "Default",
-                          "thresholdValue": null,
-                          "representation": "success",
-                          "text": "{0} Days"
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "columnMatch": "ExpirationDate",
-                    "formatter": 6
-                  }
-                ]
-              }
-            },
-            "name": "query - APIM Table"
-          }
-        ]
-      },
-      "conditionalVisibility": {
-        "parameterName": "selectedTab",
-        "comparison": "isEqualTo",
-        "value": "apim"
-      },
-      "name": "group - APIM Tab"
-    },
-    {
-      "type": 12,
-      "content": {
-        "version": "NotebookGroup/1.0",
-        "groupType": "editable",
-        "items": [
-          {
-            "type": 1,
-            "content": {
-              "json": "### Azure Front Door & CDN Custom Domains (`microsoft.cdn/profiles/customdomains`)\r\nAudits edge custom domains, TLS minimum protocol versions, and managed vs customer certificate types."
-            },
-            "name": "text - Front Door Intro"
-          },
-          {
-            "type": 3,
-            "content": {
-              "version": "KqlItem/1.0",
-              "query": "resources\r\n| where type =~ 'microsoft.cdn/profiles/customdomains'\r\n| extend hostName = tostring(properties.hostName)\r\n| extend certType = tostring(properties.tlsSettings.certificateType)\r\n| extend minTlsVersion = tostring(properties.tlsSettings.minimumTlsVersion)\r\n| extend validationState = tostring(properties.domainValidationState)\r\n| extend provisioningState = tostring(properties.provisioningState)\r\n| project CustomDomain = id, HostName = hostName, CertificateType = certType, MinimumTlsVersion = minTlsVersion, ValidationState = validationState, ProvisioningState = provisioningState, resourceGroup, subscriptionId\r\n| sort by HostName asc",
-              "size": 2,
-              "title": "Front Door & CDN Custom Domains",
-              "noDataMessage": "No Front Door or CDN custom domains found in selected subscriptions.",
-              "showExportToExcel": true,
-              "queryType": 1,
-              "resourceType": "microsoft.resourcegraph/resources",
-              "crossComponentResources": [
-                "{Subscriptions}"
-              ],
-              "visualization": "table",
-              "gridSettings": {
-                "filter": true,
-                "hierarchySettings": {
-                  "treeType": 1,
-                  "groupBy": [
-                    "subscriptionId"
-                  ],
-                  "expandTopLevel": true,
-                  "finalBy": "CustomDomain"
-                },
-                "formatters": [
-                  {
-                    "columnMatch": "CustomDomain",
-                    "formatter": 13,
-                    "formatOptions": {
-                      "linkTarget": "Resource",
-                      "showIcon": true
-                    }
-                  }
-                ]
-              }
-            },
-            "name": "query - Front Door Grid"
-          }
-        ]
-      },
-      "conditionalVisibility": {
-        "parameterName": "selectedTab",
-        "comparison": "isEqualTo",
-        "value": "frontdoor"
-      },
-      "name": "group - Front Door Tab"
-    },
-    {
-      "type": 12,
-      "content": {
-        "version": "NotebookGroup/1.0",
-        "groupType": "editable",
-        "items": [
-          {
-            "type": 1,
-            "content": {
-              "json": "### Key Vaults & Centralized Certificate Lifecycle Monitoring\r\nReview Key Vault security posture (Soft Delete, Purge Protection) across your tenant, and configure Azure Monitor Diagnostic Settings to ingest real-time certificate near-expiry alerts into Log Analytics."
-            },
-            "name": "text - Key Vault Intro"
-          },
-          {
-            "type": 3,
-            "content": {
-              "version": "KqlItem/1.0",
-              "query": "resources\r\n| where type =~ 'microsoft.keyvault/vaults'\r\n| extend enableSoftDelete = tostring(properties.enableSoftDelete)\r\n| extend enablePurgeProtection = tostring(properties.enablePurgeProtection)\r\n| extend softDeleteRetentionInDays = toint(properties.softDeleteRetentionInDays)\r\n| extend publicNetworkAccess = tostring(properties.publicNetworkAccess)\r\n| extend skuName = tostring(sku.name)\r\n| project KeyVault = id, Sku = skuName, SoftDelete = enableSoftDelete, PurgeProtection = enablePurgeProtection, RetentionDays = softDeleteRetentionInDays, PublicNetwork = publicNetworkAccess, location, resourceGroup, subscriptionId\r\n| sort by KeyVault asc",
-              "size": 2,
-              "title": "Key Vaults Inventory & Lifecycle Protection Posture",
-              "noDataMessage": "No Key Vaults found in selected subscriptions.",
-              "showExportToExcel": true,
-              "queryType": 1,
-              "resourceType": "microsoft.resourcegraph/resources",
-              "crossComponentResources": [
-                "{Subscriptions}"
-              ],
-              "visualization": "table",
-              "gridSettings": {
-                "filter": true,
-                "hierarchySettings": {
-                  "treeType": 1,
-                  "groupBy": [
-                    "subscriptionId"
-                  ],
-                  "expandTopLevel": true,
-                  "finalBy": "KeyVault"
-                },
-                "formatters": [
-                  {
-                    "columnMatch": "KeyVault",
-                    "formatter": 13,
-                    "formatOptions": {
-                      "linkTarget": "Resource",
-                      "showIcon": true
-                    }
-                  },
-                  {
-                    "columnMatch": "PurgeProtection",
-                    "formatter": 18,
-                    "formatOptions": {
-                      "thresholdsOptions": "icons",
-                      "thresholdsGrid": [
-                        {
-                          "operator": "==",
-                          "thresholdValue": "true",
-                          "representation": "success",
-                          "text": "{0}{1}"
-                        },
-                        {
-                          "operator": "Default",
-                          "thresholdValue": null,
-                          "representation": "2",
-                          "text": "{0}{1}"
-                        }
-                      ]
-                    }
-                  }
-                ]
-              }
-            },
-            "name": "query - Key Vaults Table"
-          },
-          {
-            "type": 1,
-            "content": {
-              "json": "#### Enabling Real-Time Expiry Alerts for Azure Key Vault\r\nBecause Key Vault stores certificate private keys securely within the data plane, Azure Resource Graph inspects the vault metadata. To alert on individual certificate expirations inside Key Vault:\r\n\r\n1. **Diagnostic Settings**: Route Key Vault `AuditEvent` logs to an Azure Log Analytics Workspace.\r\n2. **Runbook / Azure Policy**: Assign Azure Policy *'Certificates should have the specified maximum validity period'* or assign an Event Grid trigger when certificates near expiry (`Microsoft.KeyVault.CertificateNearExpiry`).\r\n3. **Log Analytics Query**:\r\n```kusto\r\nAzureDiagnostics\r\n| where Category == \"AuditEvent\"\r\n| where OperationName in (\"CertificateNearExpiry\", \"CertificateExpired\")\r\n| project TimeGenerated, Resource, OperationName, ResultDescription, CallerIpAddress\r\n```",
-              "style": "upsell"
-            },
-            "name": "text - Key Vault Alert Guidance"
-          }
-        ]
-      },
-      "conditionalVisibility": {
-        "parameterName": "selectedTab",
-        "comparison": "isEqualTo",
-        "value": "keyvault"
-      },
-      "name": "group - Key Vault Tab"
-    }
-  ]
+              ]
 }

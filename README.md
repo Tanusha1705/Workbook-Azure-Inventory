@@ -112,10 +112,16 @@ New-AzResourceGroupDeployment `
 To populate exact expiration dates for certificates uploaded directly into Application Gateways:
 
 ```powershell
-# 1. Run locally to inspect decoded expirations in console
+# Option A: Run locally to inspect decoded expirations & generate CSV report
 .\scripts\Sync-AppGatewayCertificatesToLogAnalytics.ps1
 
-# 2. Ingest into Log Analytics to display in the workbook
+# Option B (RECOMMENDED): Tag Application Gateways so expiration dates appear directly in the Workbook's Azure Resource Graph table (No Log Analytics needed!)
+.\scripts\Sync-AppGatewayCertificatesToLogAnalytics.ps1 -UpdateGatewayTags
+
+# Option C: Auto-discover Log Analytics and ingest into AppGatewayCertificates_CL table
+.\scripts\Sync-AppGatewayCertificatesToLogAnalytics.ps1 -AutoDiscoverWorkspace
+
+# Option D: Ingest into specific Log Analytics Workspace
 .\scripts\Sync-AppGatewayCertificatesToLogAnalytics.ps1 `
   -WorkspaceId "<Your-Log-Analytics-Workspace-ID>" `
   -WorkspaceKey "<Your-Workspace-Primary-Key>"

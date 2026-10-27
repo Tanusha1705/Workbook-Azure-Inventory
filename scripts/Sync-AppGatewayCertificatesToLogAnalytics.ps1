@@ -1,30 +1,57 @@
 <#
 .SYNOPSIS
-    Discovers, decodes, and ingests directly uploaded Azure Application Gateway certificates into Log Analytics.
+    Discovers, decodes, and tracks expiration dates of directly uploaded SSL certificates in Azure Application Gateways.
 
 .DESCRIPTION
     Azure Application Gateways store directly uploaded SSL certificates as Base64-encoded 'publicCertData'
     without an explicit 'expirationDate' field in Azure Resource Manager (ARM).
-    This script queries Azure Resource Graph, decodes the X.509 certificate binary, extracts the
-    expiration date (NotAfter), Subject, Issuer, and Thumbprint, and optionally sends the records
-    to an Azure Log Analytics Workspace for visualization in your Azure Workbook.
+    
+    This script:
+    1. Discovers all Application Gateways across your Azure subscriptions (using Az PowerShell or Azure CLI).
+    2. Decodes each certificate's Base64 X.509 binary data to extract:
+       - NotAfter (Expiration Date)
+       - DaysRemaining until expiration
+       - ExpiryStatus (Expired, Critical, Warning, Attention, Healthy)
+       - Subject / Common Name (CN)
+       - Issuer
+       - Thumbprint & Serial Number
+    3. Outputs results to:
+       - Formatted console view with color-coded alerts
+       - CSV file export ('AppGateway_Certificate_Expiry_Report.csv')
+       - Log Analytics Workspace (table: AppGatewayCertificates_CL) if WorkspaceId/Key or -AutoDiscoverWorkspace is set
+       - Directly as tags on Application Gateways (using -UpdateGatewayTags) so Azure Resource Graph in your workbook displays the expiry dates natively!
 
 .PARAMETER WorkspaceId
-    The Workspace ID of your Log Analytics Workspace.
+    Optional: The Workspace ID of your Azure Log Analytics Workspace.
 
 .PARAMETER WorkspaceKey
-    The Primary or Secondary Shared Key of your Log Analytics Workspace.
+    Optional: The Primary/Secondary Shared Key of your Log Analytics Workspace.
 
-.PARAMETER LogType
-    The custom log table name in Log Analytics. Defaults to 'AppGatewayCertificates'.
+.PARAMETER AutoDiscoverWorkspace
+    Switch: Automatically discovers and uses the first available Log Analytics Workspace in your subscription.
+
+.PARAMETER UpdateGatewayTags
+    Switch: Writes tags on the Application Gateways (e.g., CertExpiry_<CertName> = 'YYYY-MM-DD').
+    This allows Azure Resource Graph in the Azure Workbook to display the expiration date natively without requiring Log Analytics!
+
+.PARAMETER ExportCsv
+    Switch: Generates a CSV report file ('AppGateway_Certificate_Expiry_Report.csv'). Defaults to $true.
 
 .EXAMPLE
-    # Run locally and display decoded certificate expiry dates in console
+    # Run locally and display decoded certificate expiry dates in console & export CSV
     .\Sync-AppGatewayCertificatesToLogAnalytics.ps1
 
 .EXAMPLE
-    # Ingest into Log Analytics Workspace
-    .\Sync-AppGatewayCertificatesToLogAnalytics.ps1 -WorkspaceId "xxxx" -WorkspaceKey "yyyy"
+    # Tag Application Gateways so expiration dates appear directly in Azure Resource Graph & Workbook
+    .\Sync-AppGatewayCertificatesToLogAnalytics.ps1 -UpdateGatewayTags
+
+.EXAMPLE
+    # Auto-discover Log Analytics workspace and sync
+    .\Sync-AppGatewayCertificatesToLogAnalytics.ps1 -AutoDiscoverWorkspace
+
+.EXAMPLE
+    # Ingest into specific Log Analytics Workspace
+    .\Sync-AppGatewayCertificatesToLogAnalytics.ps1 -WorkspaceId "<ID>" -WorkspaceKey "<KEY>"
 #>
 
 [CmdletBinding()]
@@ -36,9 +63,21 @@ param(
     [string]$WorkspaceKey,
 
     [Parameter(Mandatory = $false)]
+    [switch]$AutoDiscoverWorkspace,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$UpdateGatewayTags,
+
+    [Parameter(Mandatory = $false)]
+    [bool]$ExportCsv = $true,
+
+    [Parameter(Mandatory = $false)]
     [string]$LogType = "AppGatewayCertificates"
 )
 
+# ----------------------------------------------------
+# Helper: Send Data to Log Analytics HTTP Data API
+# ----------------------------------------------------
 function Send-LogAnalyticsData {
     param(
         [string]$CustomerId,
@@ -68,9 +107,15 @@ function Send-LogAnalyticsData {
     Invoke-RestMethod -Uri $uri -Method $method -ContentType $contentType -Headers $headers -Body $Body
 }
 
-Write-Host "🔍 Querying Azure Resource Graph for all Application Gateways..." -ForegroundColor Cyan
+Write-Host "============================================================" -ForegroundColor Cyan
+Write-Host "  Azure Application Gateway Certificate Expiry Discovery" -ForegroundColor Cyan
+Write-Host "============================================================" -ForegroundColor Cyan
 
-# Fetch all Application Gateways with SSL certificates
+# ----------------------------------------------------
+# 1. Query Application Gateways via Resource Graph / CLI
+# ----------------------------------------------------
+Write-Host "`n[1/4] Querying Application Gateways across tenant..." -ForegroundColor Yellow
+
 $query = @"
 resources
 | where type =~ 'microsoft.network/applicationgateways'
@@ -80,22 +125,50 @@ resources
     subscriptionId, 
     resourceGroup, 
     location, 
+    tags,
     sslCertificates = properties.sslCertificates
 "@
 
 $appGateways = @()
+
 if (Get-Command Search-AzGraph -ErrorAction SilentlyContinue) {
-    $appGateways = Search-AzGraph -Query $query -First 1000
-} else {
-    Write-Warning "Az.ResourceGraph module not found. Falling back to az cli..."
-    $cliOutput = az graph query -q $query --output json | ConvertFrom-Json
-    $appGateways = $cliOutput.data
+    try {
+        $appGateways = Search-AzGraph -Query $query -First 1000
+    } catch {
+        Write-Warning "Search-AzGraph failed ($($_.Exception.Message)). Attempting Azure CLI fallback..."
+    }
 }
 
+if ($appGateways.Count -eq 0 -and (Get-Command az -ErrorAction SilentlyContinue)) {
+    try {
+        $cliOutput = az graph query -q $query --output json 2>$null | ConvertFrom-Json
+        if ($cliOutput -and $cliOutput.data) {
+            $appGateways = $cliOutput.data
+        }
+    } catch {
+        Write-Warning "Azure CLI query failed: $($_.Exception.Message)"
+    }
+}
+
+if ($appGateways.Count -eq 0) {
+    Write-Error "No Application Gateways found, or unable to authenticate with Azure. Please run 'Connect-AzAccount' or 'az login' first."
+    return
+}
+
+Write-Host "Found $($appGateways.Count) Application Gateway(s)." -ForegroundColor Green
+
+# ----------------------------------------------------
+# 2. Decode Certificates & Extract Expiration Dates
+# ----------------------------------------------------
+Write-Host "`n[2/4] Decoding X.509 SSL certificates & extracting expiration dates..." -ForegroundColor Yellow
+
 $decodedCertificates = @()
+$tagsToUpdateByGateway = @{}
 
 foreach ($gw in $appGateways) {
     if ($null -eq $gw.sslCertificates) { continue }
+
+    $gwTags = @{}
 
     foreach ($cert in $gw.sslCertificates) {
         $base64Cert = $cert.properties.publicCertData
@@ -127,8 +200,8 @@ foreach ($gw in $appGateways) {
                     Subject           = $x509.Subject
                     Issuer            = $x509.Issuer
                     Thumbprint        = $x509.Thumbprint
-                    NotBefore         = $x509.NotBefore.ToString("o")
-                    NotAfter          = $x509.NotAfter.ToString("o")
+                    NotBefore         = $x509.NotBefore.ToString("yyyy-MM-dd HH:mm:ss")
+                    NotAfter          = $x509.NotAfter.ToString("yyyy-MM-dd HH:mm:ss")
                     DaysRemaining     = $daysRemaining
                     ExpiryStatus      = $status
                     ResourceGroup     = $gw.resourceGroup
@@ -137,6 +210,11 @@ foreach ($gw in $appGateways) {
                     TimeGenerated     = [DateTime]::UtcNow.ToString("o")
                 }
                 $decodedCertificates += [PSCustomObject]$record
+
+                # Prepare tag entries
+                $gwTags["CertExpiry_$($cert.name)"] = $x509.NotAfter.ToString("yyyy-MM-dd")
+                $gwTags["CertDays_$($cert.name)"] = $daysRemaining.ToString()
+                $gwTags["CertStatus_$($cert.name)"] = $status
             }
             catch {
                 Write-Warning "Could not parse certificate '$($cert.name)' on gateway '$($gw.name)': $_"
@@ -148,11 +226,11 @@ foreach ($gw in $appGateways) {
                 AppGatewayId      = $gw.id
                 CertificateName   = $cert.name
                 CertificateSource = "Key Vault Managed"
-                Subject           = "Managed via Key Vault"
+                Subject           = "Managed via Key Vault ($keyVaultSecretId)"
                 Issuer            = "Key Vault"
                 Thumbprint        = ""
                 NotBefore         = ""
-                NotAfter          = ""
+                NotAfter          = "Auto-Rotated"
                 DaysRemaining     = 999
                 ExpiryStatus      = "Managed via Key Vault"
                 ResourceGroup     = $gw.resourceGroup
@@ -163,20 +241,97 @@ foreach ($gw in $appGateways) {
             $decodedCertificates += [PSCustomObject]$record
         }
     }
+
+    if ($gwTags.Count -gt 0) {
+        $tagsToUpdateByGateway[$gw.id] = @{
+            Name          = $gw.name
+            ResourceGroup = $gw.resourceGroup
+            Tags          = $gwTags
+        }
+    }
 }
 
-Write-Host "✅ Successfully processed $($decodedCertificates.Count) Application Gateway certificates." -ForegroundColor Green
+Write-Host "Successfully decoded $($decodedCertificates.Count) SSL certificate(s)." -ForegroundColor Green
 
-# Display results in console table
-$decodedCertificates | Format-Table AppGatewayName, CertificateName, CertificateSource, DaysRemaining, ExpiryStatus, NotAfter
+# ----------------------------------------------------
+# 3. Display Results Table
+# ----------------------------------------------------
+Write-Host "`n[3/4] Certificate Expiration Overview:" -ForegroundColor Yellow
+$decodedCertificates | Select-Object AppGatewayName, CertificateName, CertificateSource, DaysRemaining, ExpiryStatus, NotAfter | Format-Table -AutoSize
 
-# If Log Analytics Workspace ID and Key are provided, ingest
+# ----------------------------------------------------
+# 4. Optional: Update Gateway Tags (ARG Integration)
+# ----------------------------------------------------
+if ($UpdateGatewayTags) {
+    Write-Host "`n[4/4] Writing Certificate Expiration Tags to Application Gateways..." -ForegroundColor Cyan
+    foreach ($gwId in $tagsToUpdateByGateway.Keys) {
+        $info = $tagsToUpdateByGateway[$gwId]
+        Write-Host "  Tagging Application Gateway '$($info.Name)' with expiry dates..." -ForegroundColor Gray
+        
+        if (Get-Command Update-AzTag -ErrorAction SilentlyContinue) {
+            try {
+                Update-AzTag -ResourceId $gwId -Tag $info.Tags -Operation Merge -ErrorAction Stop | Out-Null
+                Write-Host "  [OK] Tags merged successfully on $($info.Name)" -ForegroundColor Green
+            } catch {
+                Write-Warning "  Failed to update tags via Az PowerShell on $($info.Name): $_"
+            }
+        } elseif (Get-Command az -ErrorAction SilentlyContinue) {
+            $tagArgs = @()
+            foreach ($k in $info.Tags.Keys) {
+                $tagArgs += "$k=$($info.Tags[$k])"
+            }
+            $tagStr = $tagArgs -join " "
+            az tag update --resource-id $gwId --operation merge --tags $tagArgs 2>$null | Out-Null
+            Write-Host "  [OK] Tags merged successfully via az cli on $($info.Name)" -ForegroundColor Green
+        }
+    }
+    Write-Host "Tags updated! Azure Resource Graph in your workbook will now show these expiry dates natively!" -ForegroundColor Green
+}
+
+# ----------------------------------------------------
+# 5. Optional: Auto-Discover / Sync to Log Analytics
+# ----------------------------------------------------
+if ($AutoDiscoverWorkspace -and [string]::IsNullOrEmpty($WorkspaceId)) {
+    Write-Host "`nAuto-discovering Log Analytics Workspace in current subscription..." -ForegroundColor Cyan
+    if (Get-Command Get-AzOperationalInsightsWorkspace -ErrorAction SilentlyContinue) {
+        $ws = Get-AzOperationalInsightsWorkspace | Select-Object -First 1
+        if ($ws) {
+            $WorkspaceId = $ws.CustomerId
+            $keys = Get-AzOperationalInsightsWorkspaceSharedKey -ResourceGroupName $ws.ResourceGroupName -Name $ws.Name
+            $WorkspaceKey = $keys.PrimarySharedKey
+            Write-Host "Found workspace: $($ws.Name) ($WorkspaceId)" -ForegroundColor Green
+        }
+    } elseif (Get-Command az -ErrorAction SilentlyContinue) {
+        $wsJson = az monitor log-analytics workspace list --query "[0]" -o json 2>$null | ConvertFrom-Json
+        if ($wsJson) {
+            $WorkspaceId = $wsJson.customerId
+            $rg = $wsJson.resourceGroup
+            $name = $wsJson.name
+            $keyJson = az monitor log-analytics workspace get-shared-keys -g $rg -n $name -o json 2>$null | ConvertFrom-Json
+            $WorkspaceKey = $keyJson.primarySharedKey
+            Write-Host "Found workspace: $name ($WorkspaceId)" -ForegroundColor Green
+        }
+    }
+}
+
 if (-not [string]::IsNullOrEmpty($WorkspaceId) -and -not [string]::IsNullOrEmpty($WorkspaceKey)) {
-    Write-Host "📤 Ingesting data into Log Analytics Workspace: $WorkspaceId (Table: ${LogType}_CL)..." -ForegroundColor Cyan
+    Write-Host "`nIngesting records into Log Analytics table '${LogType}_CL'..." -ForegroundColor Cyan
     $jsonPayload = $decodedCertificates | ConvertTo-Json -Depth 5
-    Send-LogAnalyticsData -CustomerId $WorkspaceId -SharedKey $WorkspaceKey -Body $jsonPayload -LogType $LogType
-    Write-Host "🎉 Ingestion complete! The data is now available in your workbook." -ForegroundColor Green
-} else {
-    Write-Host "ℹ️ To push this data to your Log Analytics Workspace and view in the workbook, run:" -ForegroundColor Yellow
-    Write-Host "   .\Sync-AppGatewayCertificatesToLogAnalytics.ps1 -WorkspaceId '<ID>' -WorkspaceKey '<KEY>'" -ForegroundColor Gray
+    try {
+        Send-LogAnalyticsData -CustomerId $WorkspaceId -SharedKey $WorkspaceKey -Body $jsonPayload -LogType $LogType
+        Write-Host "Log Analytics ingestion complete! Open your Azure Workbook to view decoded certificates." -ForegroundColor Green
+    } catch {
+        Write-Warning "Failed to ingest into Log Analytics: $($_.Exception.Message)"
+    }
 }
+
+# ----------------------------------------------------
+# 6. CSV Export
+# ----------------------------------------------------
+if ($ExportCsv) {
+    $csvPath = "AppGateway_Certificate_Expiry_Report.csv"
+    $decodedCertificates | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
+    Write-Host "`nReport saved: $csvPath" -ForegroundColor Green
+}
+
+Write-Host "`nDiscovery process complete." -ForegroundColor Cyan
