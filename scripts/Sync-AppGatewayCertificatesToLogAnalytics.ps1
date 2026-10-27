@@ -70,6 +70,9 @@ param(
     [switch]$UpdateGatewayTags,
 
     [Parameter(Mandatory = $false)]
+    [switch]$NoTags,
+
+    [Parameter(Mandatory = $false)]
     [switch]$ScanKeyVaults,
 
     [Parameter(Mandatory = $false)]
@@ -431,7 +434,7 @@ foreach ($item in $decodedCertificates) {
 # ----------------------------------------------------
 # 4. Update Gateway Tags (ARG Integration)
 # ----------------------------------------------------
-if ($UpdateGatewayTags) {
+if ($UpdateGatewayTags -or (-not $NoTags)) {
     Write-Host "`n[4/4] Writing Expiration Tags to Application Gateways..." -ForegroundColor Cyan
     foreach ($gwId in $tagsToUpdateByGateway.Keys) {
         $info = $tagsToUpdateByGateway[$gwId]
@@ -464,8 +467,7 @@ if ($UpdateGatewayTags) {
     }
     Write-Host "Tags updated! Azure Resource Graph in your workbook will now show these expiry dates natively!" -ForegroundColor Green
 } else {
-    Write-Host "`n[Tip] Run with '-UpdateGatewayTags' to write expiration dates directly onto Application Gateways." -ForegroundColor Cyan
-    Write-Host "      This enables Azure Resource Graph in your workbook to display them natively with color-coded status badges!" -ForegroundColor Cyan
+    Write-Host "`n[Info] Tagging skipped because -NoTags was specified." -ForegroundColor Yellow
 }
 
 # ----------------------------------------------------
