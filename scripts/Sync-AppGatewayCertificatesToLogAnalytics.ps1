@@ -70,6 +70,9 @@ param(
     [switch]$UpdateGatewayTags,
 
     [Parameter(Mandatory = $false)]
+    [switch]$ScanKeyVaults,
+
+    [Parameter(Mandatory = $false)]
     [switch]$NoCsv,
 
     [Parameter(Mandatory = $false)]
@@ -484,11 +487,178 @@ if (-not [string]::IsNullOrEmpty($WorkspaceId) -and -not [string]::IsNullOrEmpty
 }
 
 # ----------------------------------------------------
-# 6. CSV Export
+# 6. CSV Export (Application Gateway)
 # ----------------------------------------------------
 if (-not $NoCsv) {
     $decodedCertificates | Export-Csv -Path $CsvReportPath -NoTypeInformation -Encoding UTF8
     Write-Host "`nReport saved: $CsvReportPath" -ForegroundColor Green
+}
+
+# ----------------------------------------------------
+# 7. Discover All Azure Key Vault Certificates (if -ScanKeyVaults)
+# ----------------------------------------------------
+if ($ScanKeyVaults) {
+    Write-Host "`n============================================================" -ForegroundColor Cyan
+    Write-Host "  Azure Key Vault Certificate Discovery" -ForegroundColor Cyan
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "Discovering all Key Vaults across subscriptions..." -ForegroundColor Yellow
+
+    $keyVaults = @()
+
+    if (Get-Command Search-AzGraph -ErrorAction SilentlyContinue) {
+        try {
+            $keyVaults = Search-AzGraph -Query "resources | where type =~ 'microsoft.keyvault/vaults' | project id, name, resourceGroup, subscriptionId, location" -First 1000
+        } catch {}
+    }
+
+    if ($keyVaults.Count -eq 0 -and (Get-Command az -ErrorAction SilentlyContinue)) {
+        try {
+            $cliKv = az graph query -q "resources | where type =~ 'microsoft.keyvault/vaults' | project id, name, resourceGroup, subscriptionId, location" -o json 2>$null | ConvertFrom-Json
+            if ($cliKv -and $cliKv.data) {
+                $keyVaults = $cliKv.data
+            }
+        } catch {}
+    }
+
+    if ($keyVaults.Count -eq 0 -and (Get-Command az -ErrorAction SilentlyContinue)) {
+        try {
+            $subs = az account list --query "[?state=='Enabled'].id" -o json 2>$null | ConvertFrom-Json
+            if (-not $subs) {
+                $currentSub = az account show --query "id" -o tsv 2>$null
+                if ($currentSub) { $subs = @($currentSub.Trim()) }
+            }
+            foreach ($subId in $subs) {
+                $kvs = az keyvault list --subscription $subId -o json 2>$null | ConvertFrom-Json
+                if ($kvs) {
+                    foreach ($k in $kvs) {
+                        $keyVaults += [PSCustomObject]@{
+                            id             = $k.id
+                            name           = $k.name
+                            resourceGroup  = $k.resourceGroup
+                            subscriptionId = $subId
+                            location       = $k.location
+                        }
+                    }
+                }
+            }
+        } catch {}
+    }
+
+    Write-Host "Found $($keyVaults.Count) Azure Key Vault(s). Scanning certificates..." -ForegroundColor Green
+
+    $kvCertificates = @()
+
+    foreach ($kv in $keyVaults) {
+        Write-Host "  Scanning certificates in Key Vault '$($kv.name)'..." -ForegroundColor Gray
+
+        if (Get-Command az -ErrorAction SilentlyContinue) {
+            try {
+                $certs = az keyvault certificate list --vault-name $kv.name -o json 2>$null | ConvertFrom-Json
+                if ($certs) {
+                    foreach ($c in $certs) {
+                        $expires = $null
+                        $notBefore = $null
+                        if ($c.attributes -and $c.attributes.expires) {
+                            $expires = [DateTime]::Parse($c.attributes.expires)
+                        }
+                        if ($c.attributes -and $c.attributes.notBefore) {
+                            $notBefore = [DateTime]::Parse($c.attributes.notBefore)
+                        }
+
+                        $daysRemaining = if ($expires) { [math]::Round(($expires - (Get-Date)).TotalDays) } else { 999 }
+                        $status = if ($null -eq $expires) { "No Expiry Set" }
+                                  elseif ($daysRemaining -lt 0) { "Expired" }
+                                  elseif ($daysRemaining -le 30) { "Critical (< 30 Days)" }
+                                  elseif ($daysRemaining -le 60) { "Warning (31 - 60 Days)" }
+                                  elseif ($daysRemaining -le 90) { "Attention (61 - 90 Days)" }
+                                  else { "Healthy (> 90 Days)" }
+
+                        $rec = [ordered]@{
+                            VaultName       = $kv.name
+                            VaultId         = $kv.id
+                            CertificateName = $c.name
+                            CertificateId   = $c.id
+                            Enabled         = [bool]$c.attributes.enabled
+                            Thumbprint      = $c.x509ThumbprintHex
+                            NotBefore       = if ($notBefore) { $notBefore.ToString("yyyy-MM-dd HH:mm:ss") } else { "" }
+                            NotAfter        = if ($expires) { $expires.ToString("yyyy-MM-dd HH:mm:ss") } else { "" }
+                            DaysRemaining   = $daysRemaining
+                            ExpiryStatus    = $status
+                            ResourceGroup   = $kv.resourceGroup
+                            SubscriptionId  = $kv.subscriptionId
+                            TimeGenerated   = [DateTime]::UtcNow.ToString("o")
+                        }
+                        $kvCertificates += [PSCustomObject]$rec
+                    }
+                }
+            } catch {}
+        }
+        elseif (Get-Command Get-AzKeyVaultCertificate -ErrorAction SilentlyContinue) {
+            try {
+                $certs = Get-AzKeyVaultCertificate -VaultName $kv.name -ErrorAction SilentlyContinue
+                if ($certs) {
+                    foreach ($c in $certs) {
+                        $daysRemaining = if ($c.Expires) { [math]::Round(($c.Expires - (Get-Date)).TotalDays) } else { 999 }
+                        $status = if ($null -eq $c.Expires) { "No Expiry Set" }
+                                  elseif ($daysRemaining -lt 0) { "Expired" }
+                                  elseif ($daysRemaining -le 30) { "Critical (< 30 Days)" }
+                                  elseif ($daysRemaining -le 60) { "Warning (31 - 60 Days)" }
+                                  elseif ($daysRemaining -le 90) { "Attention (61 - 90 Days)" }
+                                  else { "Healthy (> 90 Days)" }
+
+                        $rec = [ordered]@{
+                            VaultName       = $kv.name
+                            VaultId         = $kv.ResourceId
+                            CertificateName = $c.Name
+                            CertificateId   = $c.Id
+                            Enabled         = [bool]$c.Enabled
+                            Thumbprint      = $c.Thumbprint
+                            NotBefore       = if ($c.NotBefore) { $c.NotBefore.ToString("yyyy-MM-dd HH:mm:ss") } else { "" }
+                            NotAfter        = if ($c.Expires) { $c.Expires.ToString("yyyy-MM-dd HH:mm:ss") } else { "" }
+                            DaysRemaining   = $daysRemaining
+                            ExpiryStatus    = $status
+                            ResourceGroup   = $kv.ResourceGroupName
+                            SubscriptionId  = $kv.subscriptionId
+                            TimeGenerated   = [DateTime]::UtcNow.ToString("o")
+                        }
+                        $kvCertificates += [PSCustomObject]$rec
+                    }
+                }
+            } catch {}
+        }
+    }
+
+    Write-Host "Successfully decoded $($kvCertificates.Count) certificate(s) across Key Vaults." -ForegroundColor Green
+
+    if ($kvCertificates.Count -gt 0) {
+        Write-Host "`nKey Vault Certificate Expiry Overview:" -ForegroundColor Yellow
+        foreach ($kvc in $kvCertificates) {
+            $color = "Green"
+            if ($kvc.DaysRemaining -lt 0) { $color = "Red" }
+            elseif ($kvc.DaysRemaining -le 30) { $color = "Magenta" }
+            elseif ($kvc.DaysRemaining -le 90) { $color = "Yellow" }
+
+            Write-Host ("  [Vault: {0}] Cert: {1} | Expiry: {2} | Days: {3} | Status: {4} | Enabled: {5}" -f `
+                $kvc.VaultName, $kvc.CertificateName, $kvc.NotAfter, $kvc.DaysRemaining, $kvc.ExpiryStatus, $kvc.Enabled) -ForegroundColor $color
+        }
+
+        if (-not $NoCsv) {
+            $kvCsvPath = "KeyVault_Certificate_Expiry_Report.csv"
+            $kvCertificates | Export-Csv -Path $kvCsvPath -NoTypeInformation -Encoding UTF8
+            Write-Host "`nKey Vault report saved: $kvCsvPath" -ForegroundColor Green
+        }
+
+        if (-not [string]::IsNullOrEmpty($WorkspaceId) -and -not [string]::IsNullOrEmpty($WorkspaceKey)) {
+            Write-Host "`nIngesting Key Vault certificates into Log Analytics table 'KeyVaultCertificates_CL'..." -ForegroundColor Cyan
+            $kvPayload = $kvCertificates | ConvertTo-Json -Depth 5
+            try {
+                Send-LogAnalyticsData -CustomerId $WorkspaceId -SharedKey $WorkspaceKey -Body $kvPayload -LogType "KeyVaultCertificates"
+                Write-Host "Key Vault certificates synced to Log Analytics successfully!" -ForegroundColor Green
+            } catch {
+                Write-Warning "Failed to ingest Key Vault certificates: $($_.Exception.Message)"
+            }
+        }
+    }
 }
 
 Write-Host "`nProcess complete." -ForegroundColor Cyan

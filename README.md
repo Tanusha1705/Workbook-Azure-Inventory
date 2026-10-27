@@ -118,9 +118,10 @@ To populate exact expiration dates for certificates uploaded directly into Appli
 # Option C: Auto-discover Log Analytics and ingest into AppGatewayCertificates_CL table
 .\scripts\Sync-AppGatewayCertificatesToLogAnalytics.ps1 -AutoDiscoverWorkspace
 
-# Option D: Ingest into specific Log Analytics Workspace
-.\scripts\Sync-AppGatewayCertificatesToLogAnalytics.ps1 `
-  -WorkspaceId "<Your-Log-Analytics-Workspace-ID>" `
-  -WorkspaceKey "<Your-Workspace-Primary-Key>"
+# Option E: Scan and discover ALL certificates stored inside Azure Key Vaults across the tenant
+.\scripts\Sync-AppGatewayCertificatesToLogAnalytics.ps1 -ScanKeyVaults
+
+# Option F (FULL RUN): Tag Application Gateways AND discover all Key Vault certificates
+.\scripts\Sync-AppGatewayCertificatesToLogAnalytics.ps1 -UpdateGatewayTags -ScanKeyVaults -AutoDiscoverWorkspace
 ```
 *(You can also schedule this script as an Azure Automation Runbook or Azure Function on a daily schedule).*

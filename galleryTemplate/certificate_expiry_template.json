@@ -1108,9 +1108,33 @@
                     {
                         "type": 1,
                         "content": {
-                            "json": "### Key Vaults & Centralized Certificate Lifecycle Monitoring\r\nReview Key Vault security posture (Soft Delete, Purge Protection) across your tenant, and configure Azure Monitor Diagnostic Settings to ingest real-time certificate near-expiry alerts into Log Analytics."
+                            "json": "### Azure Key Vaults & Centralized Certificate Lifecycle Monitoring\r\nMonitor Key Vault security posture (Soft Delete, Purge Protection) across your tenant, and view individual certificates stored inside Key Vaults with live expiration tracking."
                         },
                         "name": "text - Key Vault Intro"
+                    },
+                    {
+                        "type": 9,
+                        "content": {
+                            "version": "KqlParameterItem/1.0",
+                            "parameters": [
+                                {
+                                    "id": "param-kv-view",
+                                    "version": "KqlParameterItem/1.0",
+                                    "name": "KeyVaultView",
+                                    "label": "Select View",
+                                    "type": 2,
+                                    "isRequired": true,
+                                    "jsonData": "[\r\n {\"value\":\"posture\", \"label\":\"Key Vaults Inventory & Posture (Live ARG)\", \"selected\":true},\r\n {\"value\":\"certificates\", \"label\":\"Key Vault Certificates Expiry (Decoded Telemetry)\"}\r\n]",
+                                    "typeSettings": {
+                                        "additionalResourceOptions": []
+                                    }
+                                }
+                            ],
+                            "style": "pills",
+                            "queryType": 1,
+                            "resourceType": "microsoft.resourcegraph/resources"
+                        },
+                        "name": "parameters - Key Vault View Selector"
                     },
                     {
                         "type": 3,
@@ -1170,13 +1194,89 @@
                                 ]
                             }
                         },
+                        "conditionalVisibility": {
+                            "parameterName": "KeyVaultView",
+                            "comparison": "isEqualTo",
+                            "value": "posture"
+                        },
                         "name": "query - Key Vaults Table"
+                    },
+                    {
+                        "type": 3,
+                        "content": {
+                            "version": "KqlItem/1.0",
+                            "query": "KeyVaultCertificates_CL\r\n| extend DaysRemaining = toint(DaysRemaining_d)\r\n| extend ExpirationDate = todatetime(NotAfter_s)\r\n| extend ExpiryGroup = case(\r\n    DaysRemaining < 0, 'Expired',\r\n    DaysRemaining <= 30, 'Critical',\r\n    DaysRemaining <= 60, 'Warning',\r\n    DaysRemaining <= 90, 'Attention',\r\n    'Healthy'\r\n)\r\n| where '{ExpiryThreshold}' == 'all' or ExpiryGroup == '{ExpiryThreshold}'\r\n| project \r\n    KeyVault = VaultName_s,\r\n    Certificate = CertificateName_s,\r\n    ExpirationDate,\r\n    DaysRemaining,\r\n    ExpiryStatus = ExpiryStatus_s,\r\n    Enabled = Enabled_b,\r\n    Thumbprint = Thumbprint_s,\r\n    ResourceGroup = ResourceGroup_s,\r\n    Subscription = SubscriptionId_s\r\n| sort by DaysRemaining asc",
+                            "size": 2,
+                            "title": "Azure Key Vault Certificates & Expiry (via Sync Telemetry)",
+                            "noDataMessage": "No Key Vault certificate records found. Run the sync script with '-ScanKeyVaults' to discover and populate all Key Vault certificates.",
+                            "showExportToExcel": true,
+                            "queryType": 0,
+                            "resourceType": "microsoft.operationalinsights/workspaces",
+                            "crossComponentResources": [
+                                "{Workspace}"
+                            ],
+                            "visualization": "table",
+                            "gridSettings": {
+                                "filter": true,
+                                "sortBy": [
+                                    {
+                                        "itemKey": "DaysRemaining",
+                                        "sortOrder": 1
+                                    }
+                                ],
+                                "formatters": [
+                                    {
+                                        "columnMatch": "DaysRemaining",
+                                        "formatter": 18,
+                                        "formatOptions": {
+                                            "thresholdsOptions": "icons",
+                                            "thresholdsGrid": [
+                                                {
+                                                    "operator": "<=",
+                                                    "thresholdValue": "0",
+                                                    "representation": "3",
+                                                    "text": "{0} Days (Expired)"
+                                                },
+                                                {
+                                                    "operator": "<=",
+                                                    "thresholdValue": "30",
+                                                    "representation": "2",
+                                                    "text": "{0} Days (Critical)"
+                                                },
+                                                {
+                                                    "operator": "<=",
+                                                    "thresholdValue": "90",
+                                                    "representation": "4",
+                                                    "text": "{0} Days"
+                                                },
+                                                {
+                                                    "operator": "Default",
+                                                    "thresholdValue": null,
+                                                    "representation": "success",
+                                                    "text": "{0} Days"
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "columnMatch": "ExpirationDate",
+                                        "formatter": 6
+                                    }
+                                ]
+                            }
+                        },
+                        "conditionalVisibility": {
+                            "parameterName": "KeyVaultView",
+                            "comparison": "isEqualTo",
+                            "value": "certificates"
+                        },
+                        "name": "query - Key Vault Certificates Table"
                     },
                     {
                         "type": 1,
                         "content": {
-                            "json": "#### Enabling Real-Time Expiry Alerts for Azure Key Vault\r\nBecause Key Vault stores certificate private keys securely within the data plane, Azure Resource Graph inspects the vault metadata. To alert on individual certificate expirations inside Key Vault:\r\n\r\n1. **Diagnostic Settings**: Route Key Vault `AuditEvent` logs to an Azure Log Analytics Workspace.\r\n2. **Runbook / Azure Policy**: Assign Azure Policy *'Certificates should have the specified maximum validity period'* or assign an Event Grid trigger when certificates near expiry (`Microsoft.KeyVault.CertificateNearExpiry`).\r\n3. **Log Analytics Query**:\r\n```kusto\r\nAzureDiagnostics\r\n| where Category == \"AuditEvent\"\r\n| where OperationName in (\"CertificateNearExpiry\", \"CertificateExpired\")\r\n| project TimeGenerated, Resource, OperationName, ResultDescription, CallerIpAddress\r\n```",
-                            "style": "upsell"
+                            "json": "#### How to Monitor Certificates Stored in Azure Key Vault\r\nAzure Key Vault secures certificate private keys within the **data plane**, which requires data plane access (RBAC `Key Vault Certificate User` or Vault Access Policy) to read.\r\n\r\n**Two ways to track Key Vault certificate expiration:**\r\n\r\n1. **Discover All Key Vault Certificates via Script (Instant Discovery & Export):**\r\n   Run the helper script with `-ScanKeyVaults` to discover all certificates across all Key Vaults in your tenant:\r\n   ```powershell\r\n   powershell -ExecutionPolicy Bypass -File .\\scripts\\Sync-AppGatewayCertificatesToLogAnalytics.ps1 -ScanKeyVaults\r\n   ```\r\n   To also ingest the telemetry into Log Analytics, add `-AutoDiscoverWorkspace`:\r\n   ```powershell\r\n   powershell -ExecutionPolicy Bypass -File .\\scripts\\Sync-AppGatewayCertificatesToLogAnalytics.ps1 -ScanKeyVaults -AutoDiscoverWorkspace\r\n   ```\r\n\r\n2. **Real-Time Azure Monitor Diagnostic Alerts:**\r\n   Enable Diagnostic Settings on Key Vaults to route `AuditEvent` logs to Log Analytics, and query near-expiry events:\r\n   ```kusto\r\n   AzureDiagnostics\r\n   | where Category == \"AuditEvent\"\r\n   | where OperationName in (\"CertificateNearExpiry\", \"CertificateExpired\")\r\n   | project TimeGenerated, Resource, OperationName, ResultDescription, CallerIpAddress\r\n   ```",
+                            "style": "info"
                         },
                         "name": "text - Key Vault Alert Guidance"
                     }
