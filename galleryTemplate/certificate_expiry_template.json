@@ -756,9 +756,9 @@
                         "type": 3,
                         "content": {
                             "version": "KqlItem/1.0",
-                            "query": "resources\n| where type =~ 'microsoft.network/applicationgateways'\n| mv-expand cert = properties.sslCertificates\n| extend certName = tostring(cert.name)\n| extend keyVaultSecretId = tostring(cert.properties.keyVaultSecretId)\n| extend certProvisioningState = tostring(cert.properties.provisioningState)\n| extend CertificateType = iff(isnotempty(keyVaultSecretId), 'Key Vault Managed', 'Direct Upload (Manual)')\n| extend AutoRotation = iff(isempty(keyVaultSecretId), 'None (Direct Upload)', iff(keyVaultSecretId matches regex @'/[0-9a-f]{32}$', 'Pinned Version (Manual Update)', 'Auto-Rotate (Unversioned URI)'))\n| extend TaggedExpiry = tostring(tags[strcat('CertExpiry_', certName)])\n| extend TaggedDays = toint(tags[strcat('CertDays_', certName)])\n| extend TaggedStatus = tostring(tags[strcat('CertStatus_', certName)])\n| extend ExpirationDate = iff(isnotempty(TaggedExpiry), TaggedExpiry, iff(isnotempty(keyVaultSecretId), 'Managed in Key Vault', 'Run sync script to decode'))\n| extend DaysRemaining = iff(isnotempty(TaggedDays), TaggedDays, iff(isnotempty(keyVaultSecretId), int(999), int(null)))\n| extend ExpiryStatus = iff(isnotempty(TaggedStatus), TaggedStatus, iff(isnotempty(keyVaultSecretId), 'Key Vault Managed', 'Direct Upload (Run sync script)'))\n| project ApplicationGateway = id, CertificateName = certName, ExpirationDate, DaysRemaining, ExpiryStatus, CertificateType, AutoRotation, KeyVaultSecretURI = keyVaultSecretId, ProvisioningState = certProvisioningState, location, resourceGroup, subscriptionId\n| sort by CertificateType asc, CertificateName asc",
+                            "query": "resources\n| where type =~ 'microsoft.network/applicationgateways'\n| mv-expand cert = properties.sslCertificates\n| extend certName = tostring(cert.name)\n| extend keyVaultSecretId = tostring(cert.properties.keyVaultSecretId)\n| extend certProvisioningState = tostring(cert.properties.provisioningState)\n| extend CertificateType = iff(isnotempty(keyVaultSecretId), 'Key Vault Managed', 'Direct Upload (Manual)')\n| extend AutoRotation = iff(isempty(keyVaultSecretId), 'None (Direct Upload)', iff(keyVaultSecretId matches regex @'/[0-9a-f]{32}$', 'Pinned Version (Manual Update)', 'Auto-Rotate (Unversioned URI)'))\n| extend TaggedExpiry = tostring(tags[strcat('CertExpiry_', certName)])\n| extend TaggedExpiryExact = tostring(tags[strcat('CertExpiryExact_', certName)])\n| extend TaggedDays = toint(tags[strcat('CertDays_', certName)])\n| extend TaggedStatus = tostring(tags[strcat('CertStatus_', certName)])\n| extend ExactExpirationDateTime = todatetime(TaggedExpiry)\n| extend ExactExpirationUTC = iff(isnotempty(TaggedExpiryExact), TaggedExpiryExact, iff(isnotempty(TaggedExpiry), TaggedExpiry, iff(isnotempty(keyVaultSecretId), 'Managed in Key Vault', 'Run sync script to decode')))\n| extend DaysRemaining = iff(isnotempty(TaggedDays), TaggedDays, iff(isnotempty(keyVaultSecretId), int(999), int(null)))\n| extend ExpiryStatus = iff(isnotempty(TaggedStatus), TaggedStatus, iff(isnotempty(keyVaultSecretId), 'Key Vault Managed', 'Direct Upload (Run sync script)'))\n| project ApplicationGateway = id, CertificateName = certName, ExactExpirationDateTime, ExactExpirationUTC, DaysRemaining, ExpiryStatus, CertificateType, AutoRotation, KeyVaultSecretURI = keyVaultSecretId, ProvisioningState = certProvisioningState, location, resourceGroup, subscriptionId\n| sort by CertificateType asc, CertificateName asc",
                             "size": 2,
-                            "title": "Application Gateway SSL Certificates & Expiry Posture (Live ARG)",
+                            "title": "Application Gateway SSL Certificates - Exact Expiration Date & Time (Live ARG)",
                             "noDataMessage": "No Application Gateways found in selected subscriptions.",
                             "showExportToExcel": true,
                             "queryType": 1,
@@ -785,6 +785,17 @@
                                             "linkTarget": "Resource",
                                             "showIcon": true
                                         }
+                                    },
+                                    {
+                                        "columnMatch": "ExactExpirationDateTime",
+                                        "formatter": 6,
+                                        "formatOptions": {
+                                            "customColumnWidthSetting": "22ch"
+                                        }
+                                    },
+                                    {
+                                        "columnMatch": "ExactExpirationUTC",
+                                        "formatter": 1
                                     },
                                     {
                                         "columnMatch": "CertificateType",
@@ -870,9 +881,9 @@
                         "type": 3,
                         "content": {
                             "version": "KqlItem/1.0",
-                            "query": "AppGatewayCertificates_CL\r\n| extend DaysRemaining = toint(DaysRemaining_d)\r\n| extend ExpirationDate = todatetime(NotAfter_s)\r\n| extend ExpiryGroup = case(\r\n    DaysRemaining < 0, 'Expired',\r\n    DaysRemaining <= 30, 'Critical',\r\n    DaysRemaining <= 60, 'Warning',\r\n    DaysRemaining <= 90, 'Attention',\r\n    'Healthy'\r\n)\r\n| where '{ExpiryThreshold}' == 'all' or ExpiryGroup == '{ExpiryThreshold}'\r\n| project \r\n    AppGateway = AppGatewayName_s,\r\n    Certificate = CertificateName_s,\r\n    CertificateSource = CertificateSource_s,\r\n    Subject = Subject_s,\r\n    ExpirationDate,\r\n    DaysRemaining,\r\n    ExpiryStatus = ExpiryStatus_s,\r\n    Thumbprint = Thumbprint_s,\r\n    ResourceGroup = ResourceGroup_s,\r\n    Subscription = SubscriptionId_s\r\n| sort by DaysRemaining asc",
+                            "query": "AppGatewayCertificates_CL\r\n| extend DaysRemaining = toint(DaysRemaining_d)\r\n| extend ExactExpirationDateTime = todatetime(NotAfter_s)\r\n| extend ExactExpirationUTC = tostring(NotAfter_s)\r\n| extend ExpiryGroup = case(\r\n    DaysRemaining < 0, 'Expired',\r\n    DaysRemaining <= 30, 'Critical',\r\n    DaysRemaining <= 60, 'Warning',\r\n    DaysRemaining <= 90, 'Attention',\r\n    'Healthy'\r\n)\r\n| where '{ExpiryThreshold}' == 'all' or ExpiryGroup == '{ExpiryThreshold}'\r\n| project \r\n    AppGateway = AppGatewayName_s,\r\n    Certificate = CertificateName_s,\r\n    CertificateSource = CertificateSource_s,\r\n    ExactExpirationDateTime,\r\n    ExactExpirationUTC,\r\n    DaysRemaining,\r\n    ExpiryStatus = ExpiryStatus_s,\r\n    Subject = Subject_s,\r\n    Thumbprint = Thumbprint_s,\r\n    ResourceGroup = ResourceGroup_s,\r\n    Subscription = SubscriptionId_s\r\n| sort by DaysRemaining asc",
                             "size": 2,
-                            "title": "Decoded Direct Upload Certificates & Expiry (via Log Analytics Sync)",
+                            "title": "Decoded Certificates - Exact Expiration Date & Time (Log Analytics)",
                             "noDataMessage": "No decoded certificate records found in Log Analytics yet. Run scripts/Sync-AppGatewayCertificatesToLogAnalytics.ps1 to populate this table.",
                             "showExportToExcel": true,
                             "queryType": 0,
@@ -890,6 +901,10 @@
                                     }
                                 ],
                                 "formatters": [
+                                    {
+                                        "columnMatch": "ExactExpirationDateTime",
+                                        "formatter": 6
+                                    },
                                     {
                                         "columnMatch": "DaysRemaining",
                                         "formatter": 18,
@@ -922,10 +937,6 @@
                                                 }
                                             ]
                                         }
-                                    },
-                                    {
-                                        "columnMatch": "ExpirationDate",
-                                        "formatter": 6
                                     }
                                 ]
                             }

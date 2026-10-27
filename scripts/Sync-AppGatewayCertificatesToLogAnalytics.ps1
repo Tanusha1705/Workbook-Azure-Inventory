@@ -242,27 +242,36 @@ foreach ($gw in $appGateways) {
                     "Healthy (> 90 Days)"
                 }
 
+                $exactNotAfterUtc = $x509.NotAfter.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                $exactNotAfterDisplay = $x509.NotAfter.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'")
+                $exactNotAfterLocal = $x509.NotAfter.ToString("yyyy-MM-dd HH:mm:ss")
+                $exactNotBeforeDisplay = $x509.NotBefore.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'")
+
                 $record = [ordered]@{
-                    AppGatewayName    = $gw.name
-                    AppGatewayId      = $gw.id
-                    CertificateName   = $cert.name
-                    CertificateSource = "Direct Upload"
-                    Subject           = $x509.Subject
-                    Issuer            = $x509.Issuer
-                    Thumbprint        = $x509.Thumbprint
-                    NotBefore         = $x509.NotBefore.ToString("yyyy-MM-dd HH:mm:ss")
-                    NotAfter          = $x509.NotAfter.ToString("yyyy-MM-dd HH:mm:ss")
-                    DaysRemaining     = $daysRemaining
-                    ExpiryStatus      = $status
-                    ResourceGroup     = $gw.resourceGroup
-                    SubscriptionId    = $gw.subscriptionId
-                    Location          = $gw.location
-                    TimeGenerated     = [DateTime]::UtcNow.ToString("o")
+                    AppGatewayName        = $gw.name
+                    AppGatewayId          = $gw.id
+                    CertificateName       = $cert.name
+                    CertificateSource     = "Direct Upload"
+                    ExactExpiryUTC        = $exactNotAfterDisplay
+                    ExactExpiryISO        = $exactNotAfterUtc
+                    ExactExpiryLocal      = $exactNotAfterLocal
+                    NotAfter              = $exactNotAfterDisplay
+                    NotBefore             = $exactNotBeforeDisplay
+                    DaysRemaining         = $daysRemaining
+                    ExpiryStatus          = $status
+                    Subject               = $x509.Subject
+                    Issuer                = $x509.Issuer
+                    Thumbprint            = $x509.Thumbprint
+                    ResourceGroup         = $gw.resourceGroup
+                    SubscriptionId        = $gw.subscriptionId
+                    Location              = $gw.location
+                    TimeGenerated         = [DateTime]::UtcNow.ToString("o")
                 }
                 $decodedCertificates += [PSCustomObject]$record
 
-                # Prepare tag entries for live Azure Resource Graph display
-                $gwTags["CertExpiry_$($cert.name)"] = $x509.NotAfter.ToString("yyyy-MM-dd")
+                # Prepare tag entries with EXACT date and time for Azure Resource Graph & Workbook
+                $gwTags["CertExpiry_$($cert.name)"] = $exactNotAfterUtc
+                $gwTags["CertExpiryExact_$($cert.name)"] = $exactNotAfterDisplay
                 $gwTags["CertDays_$($cert.name)"] = $daysRemaining.ToString()
                 $gwTags["CertStatus_$($cert.name)"] = $status
             }
@@ -338,26 +347,36 @@ foreach ($gw in $appGateways) {
                     "Healthy (> 90 Days)"
                 }
 
+                $exactKvUtc = $kvExpires.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                $exactKvDisplay = $kvExpires.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'")
+                $exactKvLocal = $kvExpires.ToString("yyyy-MM-dd HH:mm:ss")
+                $exactKvBeforeDisplay = if ($kvNotBefore) { $kvNotBefore.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'") } else { "" }
+
                 $record = [ordered]@{
-                    AppGatewayName    = $gw.name
-                    AppGatewayId      = $gw.id
-                    CertificateName   = $cert.name
-                    CertificateSource = "Key Vault Managed"
-                    Subject           = "Key Vault Secret: $secretName"
-                    Issuer            = "Key Vault ($vaultName)"
-                    Thumbprint        = $kvThumbprint
-                    NotBefore         = if ($kvNotBefore) { $kvNotBefore.ToString("yyyy-MM-dd HH:mm:ss") } else { "" }
-                    NotAfter          = $kvExpires.ToString("yyyy-MM-dd HH:mm:ss")
-                    DaysRemaining     = $daysRemaining
-                    ExpiryStatus      = $status
-                    ResourceGroup     = $gw.resourceGroup
-                    SubscriptionId    = $gw.subscriptionId
-                    Location          = $gw.location
-                    TimeGenerated     = [DateTime]::UtcNow.ToString("o")
+                    AppGatewayName        = $gw.name
+                    AppGatewayId          = $gw.id
+                    CertificateName       = $cert.name
+                    CertificateSource     = "Key Vault Managed"
+                    ExactExpiryUTC        = $exactKvDisplay
+                    ExactExpiryISO        = $exactKvUtc
+                    ExactExpiryLocal      = $exactKvLocal
+                    NotAfter              = $exactKvDisplay
+                    NotBefore             = $exactKvBeforeDisplay
+                    DaysRemaining         = $daysRemaining
+                    ExpiryStatus          = $status
+                    Subject               = "Key Vault Secret: $secretName"
+                    Issuer                = "Key Vault ($vaultName)"
+                    Thumbprint            = $kvThumbprint
+                    ResourceGroup         = $gw.resourceGroup
+                    SubscriptionId        = $gw.subscriptionId
+                    Location              = $gw.location
+                    TimeGenerated         = [DateTime]::UtcNow.ToString("o")
                 }
                 $decodedCertificates += [PSCustomObject]$record
 
-                $gwTags["CertExpiry_$($cert.name)"] = $kvExpires.ToString("yyyy-MM-dd")
+                # Prepare tag entries with EXACT date and time for Azure Resource Graph & Workbook
+                $gwTags["CertExpiry_$($cert.name)"] = $exactKvUtc
+                $gwTags["CertExpiryExact_$($cert.name)"] = $exactKvDisplay
                 $gwTags["CertDays_$($cert.name)"] = $daysRemaining.ToString()
                 $gwTags["CertStatus_$($cert.name)"] = $status
             } else {
@@ -405,7 +424,7 @@ foreach ($item in $decodedCertificates) {
     elseif ($item.DaysRemaining -le 30) { $color = "Magenta" }
     elseif ($item.DaysRemaining -le 90) { $color = "Yellow" }
 
-    Write-Host ("  [{0}] Gateway: {1} | Cert: {2} | Source: {3} | Expiry: {4} | Days: {5} | Status: {6}" -f `
+    Write-Host ("  [{0}] Gateway: {1} | Cert: {2} | EXACT Expiry (UTC): {4} | Days: {5} | Status: {6}" -f `
         $item.CertificateSource, $item.AppGatewayName, $item.CertificateName, $item.CertificateSource, $item.NotAfter, $item.DaysRemaining, $item.ExpiryStatus) -ForegroundColor $color
 }
 
