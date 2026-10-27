@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Discovers, decodes, and tracks expiration dates of directly uploaded SSL certificates in Azure Application Gateways.
+    Discovers, decodes, and tracks expiration dates of SSL certificates in Azure Application Gateways.
 
 .DESCRIPTION
     Azure Application Gateways store directly uploaded SSL certificates as Base64-encoded 'publicCertData'
@@ -8,18 +8,19 @@
     
     This script:
     1. Discovers all Application Gateways across your Azure subscriptions (using Az PowerShell or Azure CLI).
-    2. Decodes each certificate's Base64 X.509 binary data to extract:
+    2. Decodes each directly uploaded certificate's Base64 X.509 binary data to extract:
        - NotAfter (Expiration Date)
        - DaysRemaining until expiration
        - ExpiryStatus (Expired, Critical, Warning, Attention, Healthy)
        - Subject / Common Name (CN)
        - Issuer
        - Thumbprint & Serial Number
-    3. Outputs results to:
+    3. For Key Vault integrated certificates, queries Azure Key Vault to resolve the real expiration date.
+    4. Outputs results to:
        - Formatted console view with color-coded alerts
        - CSV file export ('AppGateway_Certificate_Expiry_Report.csv')
-       - Log Analytics Workspace (table: AppGatewayCertificates_CL) if WorkspaceId/Key or -AutoDiscoverWorkspace is set
        - Directly as tags on Application Gateways (using -UpdateGatewayTags) so Azure Resource Graph in your workbook displays the expiry dates natively!
+       - Log Analytics Workspace (table: AppGatewayCertificates_CL) if WorkspaceId/Key or -AutoDiscoverWorkspace is set
 
 .PARAMETER WorkspaceId
     Optional: The Workspace ID of your Azure Log Analytics Workspace.
@@ -31,7 +32,7 @@
     Switch: Automatically discovers and uses the first available Log Analytics Workspace in your subscription.
 
 .PARAMETER UpdateGatewayTags
-    Switch: Writes tags on the Application Gateways (e.g., CertExpiry_<CertName> = 'YYYY-MM-DD').
+    Switch: Writes tags on the Application Gateways (e.g., CertExpiry_<CertName> = 'YYYY-MM-DD', CertDays_<CertName> = 'xx').
     This allows Azure Resource Graph in the Azure Workbook to display the expiration date natively without requiring Log Analytics!
 
 .PARAMETER ExportCsv
@@ -46,12 +47,12 @@
     .\Sync-AppGatewayCertificatesToLogAnalytics.ps1 -UpdateGatewayTags
 
 .EXAMPLE
-    # Auto-discover Log Analytics workspace and sync
+    # Auto-discover Log Analytics workspace and sync telemetry
     .\Sync-AppGatewayCertificatesToLogAnalytics.ps1 -AutoDiscoverWorkspace
 
 .EXAMPLE
-    # Ingest into specific Log Analytics Workspace
-    .\Sync-AppGatewayCertificatesToLogAnalytics.ps1 -WorkspaceId "<ID>" -WorkspaceKey "<KEY>"
+    # Tag Application Gateways AND send to Log Analytics
+    .\Sync-AppGatewayCertificatesToLogAnalytics.ps1 -UpdateGatewayTags -AutoDiscoverWorkspace
 #>
 
 [CmdletBinding()]
@@ -69,7 +70,10 @@ param(
     [switch]$UpdateGatewayTags,
 
     [Parameter(Mandatory = $false)]
-    [bool]$ExportCsv = $true,
+    [switch]$NoCsv,
+
+    [Parameter(Mandatory = $false)]
+    [string]$CsvReportPath = "AppGateway_Certificate_Expiry_Report.csv",
 
     [Parameter(Mandatory = $false)]
     [string]$LogType = "AppGatewayCertificates"
@@ -112,9 +116,9 @@ Write-Host "  Azure Application Gateway Certificate Expiry Discovery" -Foregroun
 Write-Host "============================================================" -ForegroundColor Cyan
 
 # ----------------------------------------------------
-# 1. Query Application Gateways via Resource Graph / CLI
+# 1. Query Application Gateways across Subscriptions
 # ----------------------------------------------------
-Write-Host "`n[1/4] Querying Application Gateways across tenant..." -ForegroundColor Yellow
+Write-Host "`n[1/4] Discovering Application Gateways across subscriptions..." -ForegroundColor Yellow
 
 $query = @"
 resources
@@ -126,19 +130,22 @@ resources
     resourceGroup, 
     location, 
     tags,
-    sslCertificates = properties.sslCertificates
+    sslCertificates = properties.sslCertificates,
+    httpListeners = properties.httpListeners
 "@
 
 $appGateways = @()
 
+# Method A: Search-AzGraph (Az PowerShell)
 if (Get-Command Search-AzGraph -ErrorAction SilentlyContinue) {
     try {
         $appGateways = Search-AzGraph -Query $query -First 1000
     } catch {
-        Write-Warning "Search-AzGraph failed ($($_.Exception.Message)). Attempting Azure CLI fallback..."
+        Write-Verbose "Search-AzGraph failed ($($_.Exception.Message)). Attempting fallback..."
     }
 }
 
+# Method B: Azure CLI Resource Graph (az graph query)
 if ($appGateways.Count -eq 0 -and (Get-Command az -ErrorAction SilentlyContinue)) {
     try {
         $cliOutput = az graph query -q $query --output json 2>$null | ConvertFrom-Json
@@ -146,12 +153,43 @@ if ($appGateways.Count -eq 0 -and (Get-Command az -ErrorAction SilentlyContinue)
             $appGateways = $cliOutput.data
         }
     } catch {
-        Write-Warning "Azure CLI query failed: $($_.Exception.Message)"
+        Write-Verbose "Azure CLI Resource Graph query failed ($($_.Exception.Message))."
+    }
+}
+
+# Method C: Direct Azure CLI fallback across subscriptions
+if ($appGateways.Count -eq 0 -and (Get-Command az -ErrorAction SilentlyContinue)) {
+    Write-Host "  Querying subscriptions via Azure CLI..." -ForegroundColor Gray
+    try {
+        $subs = az account list --query "[?state=='Enabled'].id" -o json 2>$null | ConvertFrom-Json
+        if (-not $subs) {
+            $currentSub = az account show --query "id" -o tsv 2>$null
+            if ($currentSub) { $subs = @($currentSub.Trim()) }
+        }
+        foreach ($subId in $subs) {
+            $gws = az network application-gateway list --subscription $subId -o json 2>$null | ConvertFrom-Json
+            if ($gws) {
+                foreach ($gw in $gws) {
+                    $appGateways += [PSCustomObject]@{
+                        id              = $gw.id
+                        name            = $gw.name
+                        subscriptionId  = $subId
+                        resourceGroup   = $gw.resourceGroup
+                        location        = $gw.location
+                        tags            = $gw.tags
+                        sslCertificates = $gw.sslCertificates
+                        httpListeners   = $gw.httpListeners
+                    }
+                }
+            }
+        }
+    } catch {
+        Write-Verbose "Direct az network application-gateway list fallback error: $_"
     }
 }
 
 if ($appGateways.Count -eq 0) {
-    Write-Error "No Application Gateways found, or unable to authenticate with Azure. Please run 'Connect-AzAccount' or 'az login' first."
+    Write-Error "No Application Gateways found, or unable to authenticate with Azure. Please log in via 'Connect-AzAccount' or 'az login' first."
     return
 }
 
@@ -160,7 +198,7 @@ Write-Host "Found $($appGateways.Count) Application Gateway(s)." -ForegroundColo
 # ----------------------------------------------------
 # 2. Decode Certificates & Extract Expiration Dates
 # ----------------------------------------------------
-Write-Host "`n[2/4] Decoding X.509 SSL certificates & extracting expiration dates..." -ForegroundColor Yellow
+Write-Host "`n[2/4] Decoding SSL certificates & resolving expiration dates..." -ForegroundColor Yellow
 
 $decodedCertificates = @()
 $tagsToUpdateByGateway = @{}
@@ -171,13 +209,22 @@ foreach ($gw in $appGateways) {
     $gwTags = @{}
 
     foreach ($cert in $gw.sslCertificates) {
-        $base64Cert = $cert.properties.publicCertData
-        $keyVaultSecretId = $cert.properties.keyVaultSecretId
+        $certProps = if ($cert.properties) { $cert.properties } else { $cert }
+        $base64Cert = $certProps.publicCertData
+        $keyVaultSecretId = $certProps.keyVaultSecretId
 
+        # Case A: Directly Uploaded Certificate (Base64 X.509)
         if (-not [string]::IsNullOrEmpty($base64Cert)) {
             try {
-                $rawBytes = [System.Convert]::FromBase64String($base64Cert)
-                $x509 = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(,$rawBytes)
+                $cleanBase64 = $base64Cert.Trim() -replace '-----BEGIN CERTIFICATE-----', '' -replace '-----END CERTIFICATE-----', '' -replace '[\r\n\s]+', ''
+                $rawBytes = [System.Convert]::FromBase64String($cleanBase64)
+                
+                try {
+                    $x509 = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(,$rawBytes)
+                } catch {
+                    $x509 = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2
+                    $x509.Import($rawBytes)
+                }
                 
                 $daysRemaining = [math]::Round(($x509.NotAfter - (Get-Date)).TotalDays)
                 $status = if ($daysRemaining -lt 0) {
@@ -211,7 +258,7 @@ foreach ($gw in $appGateways) {
                 }
                 $decodedCertificates += [PSCustomObject]$record
 
-                # Prepare tag entries
+                # Prepare tag entries for live Azure Resource Graph display
                 $gwTags["CertExpiry_$($cert.name)"] = $x509.NotAfter.ToString("yyyy-MM-dd")
                 $gwTags["CertDays_$($cert.name)"] = $daysRemaining.ToString()
                 $gwTags["CertStatus_$($cert.name)"] = $status
@@ -220,25 +267,116 @@ foreach ($gw in $appGateways) {
                 Write-Warning "Could not parse certificate '$($cert.name)' on gateway '$($gw.name)': $_"
             }
         }
+        # Case B: Key Vault Managed Certificate
         elseif (-not [string]::IsNullOrEmpty($keyVaultSecretId)) {
-            $record = [ordered]@{
-                AppGatewayName    = $gw.name
-                AppGatewayId      = $gw.id
-                CertificateName   = $cert.name
-                CertificateSource = "Key Vault Managed"
-                Subject           = "Managed via Key Vault ($keyVaultSecretId)"
-                Issuer            = "Key Vault"
-                Thumbprint        = ""
-                NotBefore         = ""
-                NotAfter          = "Auto-Rotated"
-                DaysRemaining     = 999
-                ExpiryStatus      = "Managed via Key Vault"
-                ResourceGroup     = $gw.resourceGroup
-                SubscriptionId    = $gw.subscriptionId
-                Location          = $gw.location
-                TimeGenerated     = [DateTime]::UtcNow.ToString("o")
+            $kvExpires = $null
+            $kvNotBefore = $null
+            $kvThumbprint = ""
+
+            try {
+                $uri = [System.Uri]$keyVaultSecretId
+                $vaultName = $uri.Host.Split('.')[0]
+                $segments = $uri.AbsolutePath.Trim('/').Split('/')
+                $secretName = $segments[1]
+                $version = if ($segments.Length -gt 2) { $segments[2] } else { "" }
+
+                # Try querying Key Vault via Azure CLI
+                if (Get-Command az -ErrorAction SilentlyContinue) {
+                    $verArg = if ($version) { "--version $version" } else { "" }
+                    $secretInfo = az keyvault secret show --vault-name $vaultName --name $secretName $verArg -o json 2>$null | ConvertFrom-Json
+                    if ($secretInfo -and $secretInfo.attributes) {
+                        if ($secretInfo.attributes.expires) {
+                            $kvExpires = [DateTime]::Parse($secretInfo.attributes.expires)
+                        }
+                        if ($secretInfo.attributes.notBefore) {
+                            $kvNotBefore = [DateTime]::Parse($secretInfo.attributes.notBefore)
+                        }
+                    }
+                    $certInfo = az keyvault certificate show --vault-name $vaultName --name $secretName -o json 2>$null | ConvertFrom-Json
+                    if ($certInfo) {
+                        if (-not $kvExpires -and $certInfo.attributes.expires) {
+                            $kvExpires = [DateTime]::Parse($certInfo.attributes.expires)
+                        }
+                        if ($certInfo.x509ThumbprintHex) {
+                            $kvThumbprint = $certInfo.x509ThumbprintHex
+                        }
+                    }
+                }
+
+                # Try querying Key Vault via Az PowerShell
+                if (-not $kvExpires -and (Get-Command Get-AzKeyVaultSecret -ErrorAction SilentlyContinue)) {
+                    $kvSecret = if ($version) {
+                        Get-AzKeyVaultSecret -VaultName $vaultName -Name $secretName -Version $version -ErrorAction SilentlyContinue
+                    } else {
+                        Get-AzKeyVaultSecret -VaultName $vaultName -Name $secretName -ErrorAction SilentlyContinue
+                    }
+                    if ($kvSecret -and $kvSecret.Expires) {
+                        $kvExpires = $kvSecret.Expires
+                    }
+                    if ($kvSecret -and $kvSecret.NotBefore) {
+                        $kvNotBefore = $kvSecret.NotBefore
+                    }
+                }
+            } catch {
+                Write-Verbose "Key Vault lookup error for '$($cert.name)': $_"
             }
-            $decodedCertificates += [PSCustomObject]$record
+
+            if ($kvExpires) {
+                $daysRemaining = [math]::Round(($kvExpires - (Get-Date)).TotalDays)
+                $status = if ($daysRemaining -lt 0) {
+                    "Expired"
+                } elseif ($daysRemaining -le 30) {
+                    "Critical (< 30 Days)"
+                } elseif ($daysRemaining -le 60) {
+                    "Warning (31 - 60 Days)"
+                } elseif ($daysRemaining -le 90) {
+                    "Attention (61 - 90 Days)"
+                } else {
+                    "Healthy (> 90 Days)"
+                }
+
+                $record = [ordered]@{
+                    AppGatewayName    = $gw.name
+                    AppGatewayId      = $gw.id
+                    CertificateName   = $cert.name
+                    CertificateSource = "Key Vault Managed"
+                    Subject           = "Key Vault Secret: $secretName"
+                    Issuer            = "Key Vault ($vaultName)"
+                    Thumbprint        = $kvThumbprint
+                    NotBefore         = if ($kvNotBefore) { $kvNotBefore.ToString("yyyy-MM-dd HH:mm:ss") } else { "" }
+                    NotAfter          = $kvExpires.ToString("yyyy-MM-dd HH:mm:ss")
+                    DaysRemaining     = $daysRemaining
+                    ExpiryStatus      = $status
+                    ResourceGroup     = $gw.resourceGroup
+                    SubscriptionId    = $gw.subscriptionId
+                    Location          = $gw.location
+                    TimeGenerated     = [DateTime]::UtcNow.ToString("o")
+                }
+                $decodedCertificates += [PSCustomObject]$record
+
+                $gwTags["CertExpiry_$($cert.name)"] = $kvExpires.ToString("yyyy-MM-dd")
+                $gwTags["CertDays_$($cert.name)"] = $daysRemaining.ToString()
+                $gwTags["CertStatus_$($cert.name)"] = $status
+            } else {
+                $record = [ordered]@{
+                    AppGatewayName    = $gw.name
+                    AppGatewayId      = $gw.id
+                    CertificateName   = $cert.name
+                    CertificateSource = "Key Vault Managed"
+                    Subject           = "Managed via Key Vault ($keyVaultSecretId)"
+                    Issuer            = "Key Vault"
+                    Thumbprint        = ""
+                    NotBefore         = ""
+                    NotAfter          = "Auto-Rotated"
+                    DaysRemaining     = 999
+                    ExpiryStatus      = "Managed via Key Vault"
+                    ResourceGroup     = $gw.resourceGroup
+                    SubscriptionId    = $gw.subscriptionId
+                    Location          = $gw.location
+                    TimeGenerated     = [DateTime]::UtcNow.ToString("o")
+                }
+                $decodedCertificates += [PSCustomObject]$record
+            }
         }
     }
 
@@ -251,48 +389,68 @@ foreach ($gw in $appGateways) {
     }
 }
 
-Write-Host "Successfully decoded $($decodedCertificates.Count) SSL certificate(s)." -ForegroundColor Green
+Write-Host "Successfully analyzed $($decodedCertificates.Count) SSL certificate(s)." -ForegroundColor Green
 
 # ----------------------------------------------------
-# 3. Display Results Table
+# 3. Formatted Console Display
 # ----------------------------------------------------
-Write-Host "`n[3/4] Certificate Expiration Overview:" -ForegroundColor Yellow
-$decodedCertificates | Select-Object AppGatewayName, CertificateName, CertificateSource, DaysRemaining, ExpiryStatus, NotAfter | Format-Table -AutoSize
+Write-Host "`n[3/4] Application Gateway Certificate Expiry Overview:" -ForegroundColor Yellow
+
+foreach ($item in $decodedCertificates) {
+    $color = "Green"
+    if ($item.DaysRemaining -lt 0) { $color = "Red" }
+    elseif ($item.DaysRemaining -le 30) { $color = "Magenta" }
+    elseif ($item.DaysRemaining -le 90) { $color = "Yellow" }
+
+    Write-Host ("  [{0}] Gateway: {1} | Cert: {2} | Source: {3} | Expiry: {4} | Days: {5} | Status: {6}" -f `
+        $item.CertificateSource, $item.AppGatewayName, $item.CertificateName, $item.CertificateSource, $item.NotAfter, $item.DaysRemaining, $item.ExpiryStatus) -ForegroundColor $color
+}
 
 # ----------------------------------------------------
-# 4. Optional: Update Gateway Tags (ARG Integration)
+# 4. Update Gateway Tags (ARG Integration)
 # ----------------------------------------------------
 if ($UpdateGatewayTags) {
-    Write-Host "`n[4/4] Writing Certificate Expiration Tags to Application Gateways..." -ForegroundColor Cyan
+    Write-Host "`n[4/4] Writing Expiration Tags to Application Gateways..." -ForegroundColor Cyan
     foreach ($gwId in $tagsToUpdateByGateway.Keys) {
         $info = $tagsToUpdateByGateway[$gwId]
         Write-Host "  Tagging Application Gateway '$($info.Name)' with expiry dates..." -ForegroundColor Gray
         
+        # Method 1: Update-AzTag
         if (Get-Command Update-AzTag -ErrorAction SilentlyContinue) {
             try {
                 Update-AzTag -ResourceId $gwId -Tag $info.Tags -Operation Merge -ErrorAction Stop | Out-Null
                 Write-Host "  [OK] Tags merged successfully on $($info.Name)" -ForegroundColor Green
+                continue
             } catch {
-                Write-Warning "  Failed to update tags via Az PowerShell on $($info.Name): $_"
+                Write-Verbose "  Update-AzTag failed ($($_.Exception.Message)). Attempting az tag..."
             }
-        } elseif (Get-Command az -ErrorAction SilentlyContinue) {
+        }
+        
+        # Method 2: az tag update
+        if (Get-Command az -ErrorAction SilentlyContinue) {
             $tagArgs = @()
             foreach ($k in $info.Tags.Keys) {
                 $tagArgs += "$k=$($info.Tags[$k])"
             }
-            $tagStr = $tagArgs -join " "
-            az tag update --resource-id $gwId --operation merge --tags $tagArgs 2>$null | Out-Null
-            Write-Host "  [OK] Tags merged successfully via az cli on $($info.Name)" -ForegroundColor Green
+            $res = az tag update --resource-id $gwId --operation merge --tags $tagArgs 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "  [OK] Tags merged successfully via az cli on $($info.Name)" -ForegroundColor Green
+            } else {
+                Write-Warning "  Could not update tags on $($info.Name). Please verify Write/Tag permissions."
+            }
         }
     }
     Write-Host "Tags updated! Azure Resource Graph in your workbook will now show these expiry dates natively!" -ForegroundColor Green
+} else {
+    Write-Host "`n[Tip] Run with '-UpdateGatewayTags' to write expiration dates directly onto Application Gateways." -ForegroundColor Cyan
+    Write-Host "      This enables Azure Resource Graph in your workbook to display them natively with color-coded status badges!" -ForegroundColor Cyan
 }
 
 # ----------------------------------------------------
 # 5. Optional: Auto-Discover / Sync to Log Analytics
 # ----------------------------------------------------
 if ($AutoDiscoverWorkspace -and [string]::IsNullOrEmpty($WorkspaceId)) {
-    Write-Host "`nAuto-discovering Log Analytics Workspace in current subscription..." -ForegroundColor Cyan
+    Write-Host "`nAuto-discovering Log Analytics Workspace..." -ForegroundColor Cyan
     if (Get-Command Get-AzOperationalInsightsWorkspace -ErrorAction SilentlyContinue) {
         $ws = Get-AzOperationalInsightsWorkspace | Select-Object -First 1
         if ($ws) {
@@ -328,10 +486,9 @@ if (-not [string]::IsNullOrEmpty($WorkspaceId) -and -not [string]::IsNullOrEmpty
 # ----------------------------------------------------
 # 6. CSV Export
 # ----------------------------------------------------
-if ($ExportCsv) {
-    $csvPath = "AppGateway_Certificate_Expiry_Report.csv"
-    $decodedCertificates | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
-    Write-Host "`nReport saved: $csvPath" -ForegroundColor Green
+if (-not $NoCsv) {
+    $decodedCertificates | Export-Csv -Path $CsvReportPath -NoTypeInformation -Encoding UTF8
+    Write-Host "`nReport saved: $CsvReportPath" -ForegroundColor Green
 }
 
-Write-Host "`nDiscovery process complete." -ForegroundColor Cyan
+Write-Host "`nProcess complete." -ForegroundColor Cyan

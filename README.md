@@ -15,10 +15,7 @@ Enterprise-grade Azure Monitor Workbooks and ARM deployment templates for comple
 │   ├── certificate_expiry_template.json    # Gallery JSON: Full Tenant Certificate Expiry Workbook
 │   └── template.json                       # Gallery JSON: Azure Full Inventory Workbook
 ├── scripts/
-│   └── Sync-AppGatewayCertificatesToLogAnalytics.ps1  # Decodes App Gateway direct upload certs & syncs to Log Analytics
-├── certificateWorkbook/                    # Standalone self-contained certificate workbook bundle
-│   ├── armTemplate/template.json
-│   └── galleryTemplate/template.json
+│   └── Sync-AppGatewayCertificatesToLogAnalytics.ps1  # Decodes App Gateway direct upload certs & syncs to Log Analytics or Tags
 └── README.md
 ```
 
