@@ -94,10 +94,12 @@ The policy validates that `publicNetworkAccess == Disabled` across the following
 
 ## 4. File Manifest
 
-* [`azurepolicy.json`](./azurepolicy.json): Complete, standalone Azure Policy definition JSON.
+* [`azurepolicy.portal.json`](./azurepolicy.portal.json): **Copy-paste ready for Azure Portal UI.** Contains only `mode`, `policyRule`, and `parameters` without outer envelope or `$schema`.
+* [`azurepolicy.json`](./azurepolicy.json): Complete ARM REST API definition format.
 * [`azurepolicy.rules.json`](./azurepolicy.rules.json): Extracted `policyRule` JSON object (useful for Azure CLI / ARM pipeline ingestion).
 * [`azurepolicy.parameters.json`](./azurepolicy.parameters.json): Extracted `parameters` JSON object.
-* [`main.bicep`](./main.bicep): Bicep template defining and assigning the policy at subscription scope.
+* [`main-mg.bicep`](./main-mg.bicep): Bicep template defining and assigning the policy at Management Group scope.
+* [`main.bicep`](./main.bicep): Bicep template defining and assigning the policy at Subscription scope.
 * [`main.tf`](./main.tf): HashiCorp Terraform module defining and assigning the policy.
 
 ---
