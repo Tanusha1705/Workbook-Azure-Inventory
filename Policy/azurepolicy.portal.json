@@ -76,6 +76,210 @@
                   "notEquals": "Disabled"
                 }
               ]
+            },
+            {
+              "allOf": [
+                {
+                  "field": "type",
+                  "equals": "Microsoft.CognitiveServices/accounts"
+                },
+                {
+                  "field": "Microsoft.CognitiveServices/accounts/publicNetworkAccess",
+                  "notEquals": "Disabled"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "field": "type",
+                  "equals": "Microsoft.Search/searchServices"
+                },
+                {
+                  "field": "Microsoft.Search/searchServices/publicNetworkAccess",
+                  "notEquals": "Disabled"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "field": "type",
+                  "equals": "Microsoft.ServiceBus/namespaces"
+                },
+                {
+                  "field": "Microsoft.ServiceBus/namespaces/publicNetworkAccess",
+                  "notEquals": "Disabled"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "field": "type",
+                  "equals": "Microsoft.EventHub/namespaces"
+                },
+                {
+                  "field": "Microsoft.EventHub/namespaces/publicNetworkAccess",
+                  "notEquals": "Disabled"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "field": "type",
+                  "equals": "Microsoft.EventGrid/topics"
+                },
+                {
+                  "field": "Microsoft.EventGrid/topics/publicNetworkAccess",
+                  "notEquals": "Disabled"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "field": "type",
+                  "equals": "Microsoft.EventGrid/domains"
+                },
+                {
+                  "field": "Microsoft.EventGrid/domains/publicNetworkAccess",
+                  "notEquals": "Disabled"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "field": "type",
+                  "equals": "Microsoft.DataFactory/factories"
+                },
+                {
+                  "field": "Microsoft.DataFactory/factories/publicNetworkAccess",
+                  "notEquals": "Disabled"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "field": "type",
+                  "equals": "Microsoft.Web/sites"
+                },
+                {
+                  "field": "Microsoft.Web/sites/publicNetworkAccess",
+                  "notEquals": "Disabled"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "field": "type",
+                  "equals": "Microsoft.DBforPostgreSQL/flexibleServers"
+                },
+                {
+                  "field": "Microsoft.DBforPostgreSQL/flexibleServers/network.publicNetworkAccess",
+                  "notEquals": "Disabled"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "field": "type",
+                  "equals": "Microsoft.DBforMySQL/flexibleServers"
+                },
+                {
+                  "field": "Microsoft.DBforMySQL/flexibleServers/network.publicNetworkAccess",
+                  "notEquals": "Disabled"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "field": "type",
+                  "equals": "Microsoft.Cache/redis"
+                },
+                {
+                  "field": "Microsoft.Cache/redis/publicNetworkAccess",
+                  "notEquals": "Disabled"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "field": "type",
+                  "equals": "Microsoft.Automation/automationAccounts"
+                },
+                {
+                  "field": "Microsoft.Automation/automationAccounts/publicNetworkAccess",
+                  "notEquals": "Disabled"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "field": "type",
+                  "equals": "Microsoft.MachineLearningServices/workspaces"
+                },
+                {
+                  "field": "Microsoft.MachineLearningServices/workspaces/publicNetworkAccess",
+                  "notEquals": "Disabled"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "field": "type",
+                  "equals": "Microsoft.SignalRService/SignalR"
+                },
+                {
+                  "field": "Microsoft.SignalRService/SignalR/publicNetworkAccess",
+                  "notEquals": "Disabled"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "field": "type",
+                  "equals": "Microsoft.Devices/IotHubs"
+                },
+                {
+                  "field": "Microsoft.Devices/IotHubs/publicNetworkAccess",
+                  "notEquals": "Disabled"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "field": "type",
+                  "equals": "Microsoft.Batch/batchAccounts"
+                },
+                {
+                  "field": "Microsoft.Batch/batchAccounts/publicNetworkAccess",
+                  "notEquals": "Disabled"
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "field": "type",
+                  "equals": "Microsoft.AppConfiguration/configurationStores"
+                },
+                {
+                  "field": "Microsoft.AppConfiguration/configurationStores/publicNetworkAccess",
+                  "notEquals": "Disabled"
+                }
+              ]
             }
           ]
         },
@@ -118,16 +322,19 @@
       "type": "Array",
       "metadata": {
         "displayName": "Excluded Resource Group Name Patterns",
-        "description": "List of resource group wildcard patterns to exempt from denial (e.g., AKS node pools, Databricks workspace backend, Cloud Shell)."
+        "description": "List of resource group wildcard patterns to exempt from denial (e.g., AKS node pools, Databricks, Cloud Shell, Backup, Network Watcher)."
       },
       "defaultValue": [
         "MC_*",
         "databricks-rg-*",
         "cloud-shell-storage-*",
         "*synapse*",
-        "AzureBackupRG_*"
+        "AzureBackupRG_*",
+        "NetworkWatcherRG*",
+        "*ASR*",
+        "*SiteRecovery*",
+        "*spring*"
       ]
     }
   }
 }
-

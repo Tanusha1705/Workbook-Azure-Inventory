@@ -15,6 +15,10 @@ param excludedResourceGroupPatterns array = [
   'cloud-shell-storage-*'
   '*synapse*'
   'AzureBackupRG_*'
+  'NetworkWatcherRG*'
+  '*ASR*'
+  '*SiteRecovery*'
+  '*spring*'
 ]
 
 @description('Name of the policy definition')
@@ -30,10 +34,10 @@ resource policyDef 'Microsoft.Authorization/policyDefinitions@2023-04-01' = {
     displayName: 'Enforce Private-Only Access (Disable Public Network Access) with Platform Managed RG Bypass'
     policyType: 'Custom'
     mode: 'Indexed'
-    description: 'Denies public network access across core PaaS services (Storage, Key Vault, ACR, SQL, Synapse, Cosmos DB) while exempting Azure first-party managed resource groups (Databricks, AKS, Synapse) and automated platform provisioning (Cloud Shell).'
+    description: 'Denies public network access across all major PaaS services while exempting Azure first-party managed resource groups and automated platform provisioning.'
     metadata: {
       category: 'Network'
-      version: '2.0.0'
+      version: '3.0.0'
     }
     parameters: {
       effect: {
@@ -61,109 +65,14 @@ resource policyDef 'Microsoft.Authorization/policyDefinitions@2023-04-01' = {
           'cloud-shell-storage-*'
           '*synapse*'
           'AzureBackupRG_*'
+          'NetworkWatcherRG*'
+          '*ASR*'
+          '*SiteRecovery*'
+          '*spring*'
         ]
       }
     }
-    policyRule: {
-      if: {
-        allOf: [
-          {
-            anyOf: [
-              {
-                allOf: [
-                  {
-                    field: 'type'
-                    equals: 'Microsoft.Storage/storageAccounts'
-                  }
-                  {
-                    field: 'Microsoft.Storage/storageAccounts/publicNetworkAccess'
-                    notEquals: 'Disabled'
-                  }
-                ]
-              }
-              {
-                allOf: [
-                  {
-                    field: 'type'
-                    equals: 'Microsoft.KeyVault/vaults'
-                  }
-                  {
-                    field: 'Microsoft.KeyVault/vaults/publicNetworkAccess'
-                    notEquals: 'Disabled'
-                  }
-                ]
-              }
-              {
-                allOf: [
-                  {
-                    field: 'type'
-                    equals: 'Microsoft.ContainerRegistry/registries'
-                  }
-                  {
-                    field: 'Microsoft.ContainerRegistry/registries/publicNetworkAccess'
-                    notEquals: 'Disabled'
-                  }
-                ]
-              }
-              {
-                allOf: [
-                  {
-                    field: 'type'
-                    equals: 'Microsoft.Sql/servers'
-                  }
-                  {
-                    field: 'Microsoft.Sql/servers/publicNetworkAccess'
-                    notEquals: 'Disabled'
-                  }
-                ]
-              }
-              {
-                allOf: [
-                  {
-                    field: 'type'
-                    equals: 'Microsoft.Synapse/workspaces'
-                  }
-                  {
-                    field: 'Microsoft.Synapse/workspaces/publicNetworkAccess'
-                    notEquals: 'Disabled'
-                  }
-                ]
-              }
-              {
-                allOf: [
-                  {
-                    field: 'type'
-                    equals: 'Microsoft.DocumentDB/databaseAccounts'
-                  }
-                  {
-                    field: 'Microsoft.DocumentDB/databaseAccounts/publicNetworkAccess'
-                    notEquals: 'Disabled'
-                  }
-                ]
-              }
-            ]
-          }
-          {
-            value: '[empty(resourceGroup().managedBy)]'
-            equals: 'true'
-          }
-          {
-            count: {
-              value: '[parameters(\'excludedResourceGroupPatterns\')]'
-              name: 'pattern'
-              where: {
-                value: '[resourceGroup().name]'
-                like: '[current(\'pattern\')]'
-              }
-            }
-            equals: 0
-          }
-        ]
-      }
-      then: {
-        effect: '[parameters(\'effect\')]'
-      }
-    }
+    policyRule: loadJsonContent('azurepolicy.rules.json')
   }
 }
 
@@ -172,7 +81,7 @@ resource policyAssign 'Microsoft.Authorization/policyAssignments@2023-04-01' = {
   name: policyAssignmentName
   properties: {
     displayName: 'Enforce Private-Only Access with Platform Managed RG Bypass Assignment'
-    description: 'Assigns the policy enforcing publicNetworkAccess disabled while exempting platform managed resource groups.'
+    description: 'Assigns policy enforcing private network access while exempting managed resource groups.'
     policyDefinitionId: policyDef.id
     parameters: {
       effect: {
@@ -184,4 +93,3 @@ resource policyAssign 'Microsoft.Authorization/policyAssignments@2023-04-01' = {
     }
   }
 }
-

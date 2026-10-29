@@ -30,7 +30,11 @@ variable "excluded_resource_group_patterns" {
     "databricks-rg-*",
     "cloud-shell-storage-*",
     "*synapse*",
-    "AzureBackupRG_*"
+    "AzureBackupRG_*",
+    "NetworkWatcherRG*",
+    "*ASR*",
+    "*SiteRecovery*",
+    "*spring*"
   ]
   description = "Resource group name wildcard patterns to exempt from denial."
 }
@@ -41,14 +45,14 @@ resource "azurerm_policy_definition" "private_access" {
   policy_type  = "Custom"
   mode         = "Indexed"
   display_name = "Enforce Private-Only Access (Disable Public Network Access) with Platform Managed RG Bypass"
-  description  = "Denies public network access across core PaaS services (Storage, Key Vault, ACR, SQL, Synapse, Cosmos DB) while exempting Azure first-party managed resource groups (Databricks, AKS, Synapse) and automated platform provisioning (Cloud Shell)."
+  description  = "Denies public network access across all major PaaS services while exempting Azure first-party managed resource groups and automated platform provisioning."
 
   metadata = jsonencode({
     category = "Network"
-    version  = "2.0.0"
+    version  = "3.0.0"
   })
 
-  parameters = file("${path.module}/azurepolicy.parameters.json")
+  parameters  = file("${path.module}/azurepolicy.parameters.json")
   policy_rule = file("${path.module}/azurepolicy.rules.json")
 }
 
@@ -69,4 +73,3 @@ resource "azurerm_subscription_policy_assignment" "private_access_assignment" {
     }
   })
 }
-

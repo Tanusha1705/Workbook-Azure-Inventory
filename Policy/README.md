@@ -77,18 +77,35 @@ If the resource group matches **any** pattern in the array (e.g. `MC_*`, `cloud-
 
 ---
 
-## 3. Targeted Resource Types
+## 3. Targeted Resource Types (Denied Public Access)
 
-The policy validates that `publicNetworkAccess == Disabled` across the following core Azure services:
+The policy comprehensively validates that `publicNetworkAccess == Disabled` across **all major Azure PaaS services** (22 service types):
 
-| Resource Type | Evaluated Alias |
-| :--- | :--- |
-| **Azure Storage Accounts** | `Microsoft.Storage/storageAccounts/publicNetworkAccess` |
-| **Azure Key Vaults** | `Microsoft.KeyVault/vaults/publicNetworkAccess` |
-| **Azure Container Registries (ACR)** | `Microsoft.ContainerRegistry/registries/publicNetworkAccess` |
-| **Azure SQL Database Servers** | `Microsoft.Sql/servers/publicNetworkAccess` |
-| **Azure Synapse Workspaces** | `Microsoft.Synapse/workspaces/publicNetworkAccess` |
-| **Azure Cosmos DB Accounts** | `Microsoft.DocumentDB/databaseAccounts/publicNetworkAccess` |
+| Category | Azure Resource Type | Evaluated Policy Alias |
+| :--- | :--- | :--- |
+| **Storage** | `Microsoft.Storage/storageAccounts` | `Microsoft.Storage/storageAccounts/publicNetworkAccess` |
+| **Security** | `Microsoft.KeyVault/vaults` | `Microsoft.KeyVault/vaults/publicNetworkAccess` |
+| **Containers** | `Microsoft.ContainerRegistry/registries` | `Microsoft.ContainerRegistry/registries/publicNetworkAccess` |
+| **Databases** | `Microsoft.Sql/servers` | `Microsoft.Sql/servers/publicNetworkAccess` |
+| **Databases** | `Microsoft.DocumentDB/databaseAccounts` (Cosmos DB) | `Microsoft.DocumentDB/databaseAccounts/publicNetworkAccess` |
+| **Databases** | `Microsoft.DBforPostgreSQL/flexibleServers` | `Microsoft.DBforPostgreSQL/flexibleServers/network.publicNetworkAccess` |
+| **Databases** | `Microsoft.DBforMySQL/flexibleServers` | `Microsoft.DBforMySQL/flexibleServers/network.publicNetworkAccess` |
+| **Caching** | `Microsoft.Cache/redis` | `Microsoft.Cache/redis/publicNetworkAccess` |
+| **Analytics** | `Microsoft.Synapse/workspaces` | `Microsoft.Synapse/workspaces/publicNetworkAccess` |
+| **Analytics & Data** | `Microsoft.DataFactory/factories` | `Microsoft.DataFactory/factories/publicNetworkAccess` |
+| **AI / Machine Learning** | `Microsoft.CognitiveServices/accounts` (Azure OpenAI, Speech, Vision) | `Microsoft.CognitiveServices/accounts/publicNetworkAccess` |
+| **AI / Search** | `Microsoft.Search/searchServices` (Azure AI Search) | `Microsoft.Search/searchServices/publicNetworkAccess` |
+| **AI / Machine Learning** | `Microsoft.MachineLearningServices/workspaces` | `Microsoft.MachineLearningServices/workspaces/publicNetworkAccess` |
+| **Messaging & Events** | `Microsoft.ServiceBus/namespaces` | `Microsoft.ServiceBus/namespaces/publicNetworkAccess` |
+| **Messaging & Events** | `Microsoft.EventHub/namespaces` | `Microsoft.EventHub/namespaces/publicNetworkAccess` |
+| **Messaging & Events** | `Microsoft.EventGrid/topics` | `Microsoft.EventGrid/topics/publicNetworkAccess` |
+| **Messaging & Events** | `Microsoft.EventGrid/domains` | `Microsoft.EventGrid/domains/publicNetworkAccess` |
+| **Compute & Web** | `Microsoft.Web/sites` (App Services & Function Apps) | `Microsoft.Web/sites/publicNetworkAccess` |
+| **Compute & Batch** | `Microsoft.Batch/batchAccounts` | `Microsoft.Batch/batchAccounts/publicNetworkAccess` |
+| **IoT** | `Microsoft.Devices/IotHubs` | `Microsoft.Devices/IotHubs/publicNetworkAccess` |
+| **Real-time Comms** | `Microsoft.SignalRService/SignalR` | `Microsoft.SignalRService/SignalR/publicNetworkAccess` |
+| **Management & Config** | `Microsoft.Automation/automationAccounts` | `Microsoft.Automation/automationAccounts/publicNetworkAccess` |
+| **Management & Config** | `Microsoft.AppConfiguration/configurationStores` | `Microsoft.AppConfiguration/configurationStores/publicNetworkAccess` |
 
 ---
 
