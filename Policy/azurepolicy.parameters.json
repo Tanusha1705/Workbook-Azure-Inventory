@@ -1,0 +1,30 @@
+{
+  "effect": {
+    "type": "String",
+    "metadata": {
+      "displayName": "Policy Effect",
+      "description": "Effect of the policy (Deny, Audit, or Disabled)."
+    },
+    "allowedValues": [
+      "Audit",
+      "Deny",
+      "Disabled"
+    ],
+    "defaultValue": "Deny"
+  },
+  "excludedResourceGroupPatterns": {
+    "type": "Array",
+    "metadata": {
+      "displayName": "Excluded Resource Group Name Patterns",
+      "description": "List of resource group wildcard patterns to exempt from denial (e.g., AKS node pools, Databricks workspace backend, Cloud Shell)."
+    },
+    "defaultValue": [
+      "MC_*",
+      "databricks-rg-*",
+      "cloud-shell-storage-*",
+      "*synapse*",
+      "AzureBackupRG_*"
+    ]
+  }
+}
+
