@@ -29,14 +29,15 @@ variable "excluded_resource_group_patterns" {
     "MC_*",
     "databricks-rg-*",
     "cloud-shell-storage-*",
-    "*synapse*",
     "AzureBackupRG_*",
     "NetworkWatcherRG*",
-    "*ASR*",
-    "*SiteRecovery*",
-    "*spring*"
+    "synapse-*",
+    "synapseworkspace-*",
+    "ASR-*",
+    "asr-*",
+    "azure-spring-cloud-*"
   ]
-  description = "Resource group name wildcard patterns to exempt from denial."
+  description = "Resource group name wildcard patterns to exempt from denial. Note: Each pattern must contain only one wildcard (*)."
 }
 
 # Policy Definition
@@ -49,7 +50,7 @@ resource "azurerm_policy_definition" "private_access" {
 
   metadata = jsonencode({
     category = "Network"
-    version  = "3.0.0"
+    version  = "3.0.1"
   })
 
   parameters  = file("${path.module}/azurepolicy.parameters.json")

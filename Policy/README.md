@@ -263,15 +263,19 @@ Navigate to **Azure Portal > Policy > Compliance**. Verify that non-compliant st
 By default, Databricks prefixes managed resource groups with `databricks-rg-`. However, even if you specify a completely custom name like `my-custom-mrg`, the policy **still bypasses it automatically** because Azure stamps `resourceGroup().managedBy` with the Databricks workspace ID.
 
 #### Q2: Can we add our own custom resource group prefixes to the exemption list?
-Yes. When assigning the policy, customize the `excludedResourceGroupPatterns` parameter array:
+Yes. When assigning the policy, customize the `excludedResourceGroupPatterns` parameter array. **Note:** Azure Policy `like` operator strictly enforces that each pattern must contain **at most one wildcard (`*`)**:
 ```json
 [
   "MC_*",
   "databricks-rg-*",
   "cloud-shell-storage-*",
-  "*synapse*",
   "AzureBackupRG_*",
-  "rg-my-special-prefix-*"
+  "NetworkWatcherRG*",
+  "synapse-*",
+  "synapseworkspace-*",
+  "ASR-*",
+  "asr-*",
+  "azure-spring-cloud-*"
 ]
 ```
 

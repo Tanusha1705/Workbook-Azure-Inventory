@@ -8,17 +8,18 @@ targetScope = 'managementGroup'
 ])
 param effect string = 'Deny'
 
-@description('Resource group name patterns to exempt from denial')
+@description('Resource group name patterns to exempt from denial. Each pattern must have only one wildcard (*).')
 param excludedResourceGroupPatterns array = [
   'MC_*'
   'databricks-rg-*'
   'cloud-shell-storage-*'
-  '*synapse*'
   'AzureBackupRG_*'
   'NetworkWatcherRG*'
-  '*ASR*'
-  '*SiteRecovery*'
-  '*spring*'
+  'synapse-*'
+  'synapseworkspace-*'
+  'ASR-*'
+  'asr-*'
+  'azure-spring-cloud-*'
 ]
 
 @description('Name of the policy definition')
@@ -37,7 +38,7 @@ resource policyDef 'Microsoft.Authorization/policyDefinitions@2023-04-01' = {
     description: 'Denies public network access across all major PaaS services while exempting Azure first-party managed resource groups and automated platform provisioning.'
     metadata: {
       category: 'Network'
-      version: '3.0.0'
+      version: '3.0.1'
     }
     parameters: {
       effect: {
@@ -57,18 +58,19 @@ resource policyDef 'Microsoft.Authorization/policyDefinitions@2023-04-01' = {
         type: 'Array'
         metadata: {
           displayName: 'Excluded Resource Group Name Patterns'
-          description: 'List of resource group wildcard patterns to exempt from denial.'
+          description: 'List of resource group wildcard patterns to exempt from denial. Note: Each pattern must contain at most one wildcard (*) character.'
         }
         defaultValue: [
           'MC_*'
           'databricks-rg-*'
           'cloud-shell-storage-*'
-          '*synapse*'
           'AzureBackupRG_*'
           'NetworkWatcherRG*'
-          '*ASR*'
-          '*SiteRecovery*'
-          '*spring*'
+          'synapse-*'
+          'synapseworkspace-*'
+          'ASR-*'
+          'asr-*'
+          'azure-spring-cloud-*'
         ]
       }
     }
